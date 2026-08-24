@@ -20,6 +20,9 @@ const Filters = {
         locationCity: null,
         peopleSearch: null,
         peopleChips: null,
+        searchContainer: null,
+        searchPersonChips: null,
+        searchPersonSuggest: null,
     },
 
     searchDebounce: null,
@@ -27,6 +30,8 @@ const Filters = {
     // Cap unselected chips when collapsed; selected chips always stay visible
     peopleChipLimit: 18,
     peopleExpanded: false,
+    personSuggestMatches: [],
+    personSuggestIndex: -1,
 
     init() {
         this.elements.filterPanel = document.getElementById('filter-panel');
@@ -35,8 +40,11 @@ const Filters = {
         this.elements.filterBadge = document.getElementById('filter-badge');
         this.elements.clearFilters = document.getElementById('clear-filters');
         this.elements.applyFilters = document.getElementById('apply-filters');
+        this.elements.searchContainer = document.getElementById('search-container');
         this.elements.searchInput = document.getElementById('search-input');
         this.elements.searchBtn = document.getElementById('search-btn');
+        this.elements.searchPersonChips = document.getElementById('search-person-chips');
+        this.elements.searchPersonSuggest = document.getElementById('search-person-suggest');
         this.elements.dateFrom = document.getElementById('date-from');
         this.elements.dateTo = document.getElementById('date-to');
         this.elements.cameraMake = document.getElementById('camera-make');
@@ -63,40 +71,41 @@ const Filters = {
         this.elements.filterBackdrop?.addEventListener('click', () => this.hidePanel());
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
+            if (this.isPersonSuggestOpen()) {
+                this.hidePersonSuggestions();
+                return;
+            }
             if (this.elements.filterPanel.hidden) return;
             const lightbox = document.getElementById('lightbox');
             if (lightbox && !lightbox.hidden) return;
             this.hidePanel();
         });
 
-        this.elements.clearFilters.addEventListener('click', () => this.clearAll());
-        this.elements.applyFilters.addEventListener('click', () => this.apply());
-
-        this.elements.searchInput.addEventListener('input', (e) => {
-            clearTimeout(this.searchDebounce);
-            this.searchDebounce = setTimeout(() => {
-                State.set({ query: e.target.value, page: 1, assets: [], hasMore: true });
-                Gallery.load();
-            }, 500);
-        });
-
-        this.elements.searchInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                clearTimeout(this.searchDebounce);
-                State.set({ query: e.target.value, page: 1, assets: [], hasMore: true });
-                Gallery.load();
+        document.addEventListener('mousedown', (e) => {
+            if (!this.elements.searchContainer?.contains(e.target)) {
+                this.hidePersonSuggestions();
             }
         });
 
+        this.elements.clearFilters.addEventListener('click', () => this.clearAll());
+        this.elements.applyFilters.addEventListener('click', () => this.apply());
+
+        this.elements.searchContainer?.addEventListener('click', (e) => {
+            if (e.target.closest('.search-person-chip-remove')) return;
+            if (e.target.closest('.search-person-option')) return;
+            this.elements.searchInput.focus();
+        });
+
+        this.elements.searchInput.addEventListener('input', () => {
+            this.onSearchInput();
+        });
+
+        this.elements.searchInput.addEventListener('keydown', (e) => {
+            this.onSearchKeydown(e);
+        });
+
         this.elements.searchBtn.addEventListener('click', () => {
-            clearTimeout(this.searchDebounce);
-            State.set({
-                query: this.elements.searchInput.value,
-                page: 1,
-                assets: [],
-                hasMore: true,
-            });
-            Gallery.load();
+            this.commitTextSearch();
         });
 
         this.elements.dateFrom.addEventListener('change', (e) => {
@@ -171,6 +180,248 @@ const Filters = {
         }
     },
 
+    onSearchInput() {
+        const value = this.elements.searchInput.value;
+        this.renderPersonSuggestions(value);
+        clearTimeout(this.searchDebounce);
+        if (this.personSuggestMatches.length > 0) {
+            return;
+        }
+        this.searchDebounce = setTimeout(() => {
+            State.set({ query: value, page: 1, assets: [], hasMore: true });
+            Gallery.load();
+        }, 500);
+    },
+
+    onSearchKeydown(e) {
+        const open = this.isPersonSuggestOpen();
+        const count = this.personSuggestMatches.length;
+
+        if (e.key === 'Escape' && open) {
+            e.preventDefault();
+            this.hidePersonSuggestions();
+            return;
+        }
+
+        if (open && count > 0 && (e.key === 'Tab' || e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+            e.preventDefault();
+            const backward = e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey);
+            this.movePersonSuggestHighlight(backward ? -1 : 1);
+            return;
+        }
+
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (open && this.personSuggestIndex >= 0) {
+                const person = this.personSuggestMatches[this.personSuggestIndex];
+                if (person) this.selectSearchPerson(person.id);
+                return;
+            }
+            this.commitTextSearch();
+            return;
+        }
+
+        if (e.key === 'Backspace' && !this.elements.searchInput.value) {
+            const personIds = State.getProperty('personIds');
+            if (personIds.length === 0) return;
+            e.preventDefault();
+            this.removeSearchPerson(personIds[personIds.length - 1]);
+        }
+    },
+
+    commitTextSearch() {
+        clearTimeout(this.searchDebounce);
+        this.hidePersonSuggestions();
+        State.set({
+            query: this.elements.searchInput.value,
+            page: 1,
+            assets: [],
+            hasMore: true,
+        });
+        Gallery.load();
+    },
+
+    nameTokens(value) {
+        return (value || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    },
+
+    personNameMatchesQuery(personName, query) {
+        const qTokens = this.nameTokens(query);
+        const nTokens = this.nameTokens(personName);
+        if (!qTokens.length || !nTokens.length) return false;
+        const used = nTokens.map(() => false);
+        for (const qt of qTokens) {
+            if (qt.length < 2) return false;
+            let found = false;
+            for (let i = 0; i < nTokens.length; i++) {
+                if (used[i]) continue;
+                if (nTokens[i] === qt || nTokens[i].startsWith(qt)) {
+                    used[i] = true;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return false;
+        }
+        return true;
+    },
+
+    matchingPeople(query) {
+        const selected = new Set(State.getProperty('personIds'));
+        return this.peopleList
+            .filter((person) => {
+                if (!person.id || selected.has(person.id)) return false;
+                return this.personNameMatchesQuery(person.name || '', query);
+            })
+            .slice(0, 8);
+    },
+
+    renderPersonSuggestions(query) {
+        const box = this.elements.searchPersonSuggest;
+        if (!box) return;
+
+        const matches = this.matchingPeople(query);
+        this.personSuggestMatches = matches;
+        this.personSuggestIndex = -1;
+
+        if (matches.length === 0) {
+            this.hidePersonSuggestions();
+            return;
+        }
+
+        box.innerHTML = '';
+        matches.forEach((person, index) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.id = `search-person-option-${index}`;
+            btn.className = 'search-person-option';
+            btn.setAttribute('role', 'option');
+            btn.setAttribute('aria-selected', 'false');
+            const label = person.name?.trim() || 'Unnamed person';
+            btn.innerHTML = `
+                <img src="${API.getPersonThumbnailUrl(person.id)}" alt="" onerror="this.style.display='none'">
+                <span>${this.escapeHtml(label)}</span>
+            `;
+            btn.addEventListener('mousedown', (e) => e.preventDefault());
+            btn.addEventListener('click', () => this.selectSearchPerson(person.id));
+            btn.addEventListener('mouseenter', () => this.setPersonSuggestHighlight(index));
+            box.appendChild(btn);
+        });
+
+        box.hidden = false;
+        this.elements.searchInput.setAttribute('aria-expanded', 'true');
+        this.elements.searchInput.removeAttribute('aria-activedescendant');
+    },
+
+    isPersonSuggestOpen() {
+        return Boolean(this.elements.searchPersonSuggest && !this.elements.searchPersonSuggest.hidden);
+    },
+
+    hidePersonSuggestions() {
+        this.personSuggestMatches = [];
+        this.personSuggestIndex = -1;
+        if (this.elements.searchPersonSuggest) {
+            this.elements.searchPersonSuggest.hidden = true;
+            this.elements.searchPersonSuggest.innerHTML = '';
+        }
+        if (this.elements.searchInput) {
+            this.elements.searchInput.setAttribute('aria-expanded', 'false');
+            this.elements.searchInput.removeAttribute('aria-activedescendant');
+        }
+    },
+
+    movePersonSuggestHighlight(delta) {
+        const count = this.personSuggestMatches.length;
+        if (count === 0) return;
+        const next = this.personSuggestIndex < 0
+            ? (delta > 0 ? 0 : count - 1)
+            : (this.personSuggestIndex + delta + count) % count;
+        this.setPersonSuggestHighlight(next);
+    },
+
+    setPersonSuggestHighlight(index) {
+        this.personSuggestIndex = index;
+        const options = this.elements.searchPersonSuggest.querySelectorAll('.search-person-option');
+        options.forEach((option, i) => {
+            const selected = i === index;
+            option.setAttribute('aria-selected', String(selected));
+            if (selected) option.scrollIntoView({ block: 'nearest' });
+        });
+        const active = options[index];
+        if (active) {
+            this.elements.searchInput.setAttribute('aria-activedescendant', active.id);
+        }
+    },
+
+    selectSearchPerson(personId) {
+        const currentIds = State.getProperty('personIds');
+        if (currentIds.includes(personId)) {
+            this.elements.searchInput.value = '';
+            this.hidePersonSuggestions();
+            return;
+        }
+        const newIds = [...currentIds, personId];
+        this.elements.searchInput.value = '';
+        this.hidePersonSuggestions();
+        State.set({ personIds: newIds, query: '', page: 1, assets: [], hasMore: true });
+        this.updatePeopleChips(newIds);
+        Gallery.load();
+        this.elements.searchInput.focus();
+    },
+
+    removeSearchPerson(personId) {
+        const newIds = State.getProperty('personIds').filter((id) => id !== personId);
+        State.set({ personIds: newIds, page: 1, assets: [], hasMore: true });
+        this.updatePeopleChips(newIds);
+        Gallery.load();
+        this.elements.searchInput.focus();
+    },
+
+    renderSearchPersonChips() {
+        const container = this.elements.searchPersonChips;
+        if (!container) return;
+
+        const selectedIds = State.getProperty('personIds');
+        const peopleById = new Map(this.peopleList.map((p) => [p.id, p]));
+        container.innerHTML = '';
+
+        selectedIds.forEach((id) => {
+            const person = peopleById.get(id);
+            const label = person?.name?.trim() || 'Unnamed person';
+            const chip = document.createElement('span');
+            chip.className = 'search-person-chip';
+            chip.setAttribute('data-person-id', id);
+            chip.innerHTML = `
+                <img src="${API.getPersonThumbnailUrl(id)}" alt="" onerror="this.style.display='none'">
+                <span>${this.escapeHtml(label)}</span>
+                <button type="button" class="search-person-chip-remove" aria-label="Remove ${this.escapeHtml(label)}">
+                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            `;
+            chip.querySelector('.search-person-chip-remove').addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.removeSearchPerson(id);
+            });
+            container.appendChild(chip);
+        });
+
+        const hasPeople = selectedIds.length > 0;
+        this.elements.searchInput.placeholder = hasPeople
+            ? 'Add a person or search meaning…'
+            : 'Search meaning, or type a name to pick a person';
+    },
+
+    escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    },
+
     clearAll() {
         this.elements.searchInput.value = '';
         this.elements.dateFrom.value = '';
@@ -182,8 +433,10 @@ const Filters = {
         document.querySelector('input[name="media-type"][value="ALL"]').checked = true;
 
         this.elements.peopleSearch.value = '';
+        this.hidePersonSuggestions();
         State.clearFilters();
         this.renderPeopleChips();
+        this.renderSearchPersonChips();
         Gallery.load();
     },
 
@@ -191,6 +444,7 @@ const Filters = {
         const state = State.get();
 
         if (state.query) this.elements.searchInput.value = state.query;
+        this.renderSearchPersonChips();
         if (state.dateFrom) this.elements.dateFrom.value = state.dateFrom;
         if (state.dateTo) this.elements.dateTo.value = state.dateTo;
 
@@ -207,10 +461,20 @@ const Filters = {
         if (state.city) this.elements.locationCity.value = state.city;
     },
 
-    onStateChange() {
+    onStateChange(newState, oldState) {
         const count = State.getActiveFilterCount();
         this.elements.filterBadge.textContent = count;
         this.elements.filterBadge.hidden = count === 0;
+
+        if (newState.personIds !== oldState?.personIds) {
+            this.renderSearchPersonChips();
+        }
+        if (
+            newState.query !== oldState?.query &&
+            document.activeElement !== this.elements.searchInput
+        ) {
+            this.elements.searchInput.value = newState.query || '';
+        }
     },
 
     async loadPeople() {
@@ -223,6 +487,10 @@ const Filters = {
             this.peopleList = people;
             State.set({ people });
             this.renderPeopleChips();
+            this.renderSearchPersonChips();
+            if (this.elements.searchInput.value) {
+                this.renderPersonSuggestions(this.elements.searchInput.value);
+            }
         } catch (error) {
             console.error('Failed to load people:', error);
             this.elements.peopleChips.innerHTML =
@@ -323,6 +591,7 @@ const Filters = {
 
     updatePeopleChips(selectedIds) {
         this.renderPeopleChips();
+        this.renderSearchPersonChips();
         this.updateUnnamedPersonBanners(selectedIds);
     },
 
