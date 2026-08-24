@@ -63,6 +63,105 @@ def validate_uuid(value: str, field_name: str = "id") -> str:
     return value
 
 
+def _name_tokens(value: str) -> list[str]:
+    return [t for t in value.strip().lower().split() if t]
+
+
+def person_name_matches_query(person_name: str, query: str) -> bool:
+    """True when every query token matches a distinct name token (exact or prefix).
+
+    "sarah" → Sarah, Sarah Smith; "smith" → John Smith; "sarah smith" → Sarah Smith.
+    Prefixes need len >= 2 so short CLIP queries like "a" stay semantic.
+    """
+    q_tokens = _name_tokens(query)
+    n_tokens = _name_tokens(person_name)
+    if not q_tokens or not n_tokens:
+        return False
+    used = [False] * len(n_tokens)
+    for qt in q_tokens:
+        found = False
+        for i, nt in enumerate(n_tokens):
+            if used[i]:
+                continue
+            if nt == qt or (len(qt) >= 2 and nt.startswith(qt)):
+                used[i] = True
+                found = True
+                break
+        if not found:
+            return False
+    return True
+
+
+def _asset_sort_key(asset: dict) -> str:
+    return asset.get("localDateTime") or asset.get("fileCreatedAt") or asset.get("createdAt") or ""
+
+
+async def fetch_named_people(client: httpx.AsyncClient) -> list[dict]:
+    """Named Immich people, same cache as GET /api/people."""
+    cache_key = "people_False"
+    cached = cache_manager.get(cache_key)
+    if cached:
+        return cached.get("people", [])
+    try:
+        response = await client.get("/api/people", params={"withHidden": False})
+        response.raise_for_status()
+        data = response.json()
+        people = data.get("people", data) if isinstance(data, dict) else data
+        named_people = [p for p in people if p.get("name")]
+        named_people.sort(key=lambda x: x.get("name", "").lower())
+        cache_manager.set(cache_key, {"people": named_people, "total": len(named_people)}, ttl=300)
+        return named_people
+    except httpx.HTTPError:
+        return []
+
+
+async def metadata_search_any_people(
+    client: httpx.AsyncClient,
+    base_payload: dict,
+    person_ids: list[str],
+    page: int,
+    size: int,
+) -> tuple[list, bool]:
+    """Metadata search where person_ids are OR'd (Immich's flat personIds is AND)."""
+    if len(person_ids) == 1:
+        payload = {**base_payload, "personIds": person_ids, "page": page, "size": size}
+        response = await client.post("/api/search/metadata", json=payload)
+        response.raise_for_status()
+        assets = response.json().get("assets", {})
+        items = assets.get("items", [])
+        return items, len(items) >= size
+
+    # Over-fetch from each person, merge by date, then page locally.
+    need = page * size
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for pid in person_ids:
+        collected = 0
+        p = 1
+        while collected < need:
+            chunk = min(100, need - collected)
+            payload = {**base_payload, "personIds": [pid], "page": p, "size": chunk}
+            response = await client.post("/api/search/metadata", json=payload)
+            response.raise_for_status()
+            items = response.json().get("assets", {}).get("items", [])
+            if not items:
+                break
+            for item in items:
+                aid = item.get("id")
+                if aid and aid not in seen:
+                    seen.add(aid)
+                    merged.append(item)
+            collected += len(items)
+            if len(items) < chunk:
+                break
+            p += 1
+
+    merged.sort(key=_asset_sort_key, reverse=True)
+    start = (page - 1) * size
+    page_items = merged[start : start + size]
+    return page_items, len(merged) > start + size
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not settings.immich_api_key:
@@ -393,7 +492,11 @@ async def search_assets(
     client: httpx.AsyncClient = Depends(get_client),
     token: TokenRecord = Depends(require_token),
 ):
-    """Proxy search to Immich. Text query → CLIP smart search; otherwise metadata."""
+    """Proxy search to Immich.
+
+    Name-like text that matches people → metadata by person (not CLIP).
+    Other text → CLIP smart search. Filter-only → metadata.
+    """
     search_payload: dict = {"page": filters.page, "size": filters.size}
     if filters.personIds:
         search_payload["personIds"] = filters.personIds
@@ -422,14 +525,44 @@ async def search_assets(
             )
         search_payload["albumIds"] = scoped_albums
 
-    use_smart = bool(filters.query and filters.query.strip())
-    if use_smart:
-        search_payload["query"] = filters.query.strip()
-        endpoint = "/api/search/smart"
-    else:
-        endpoint = "/api/search/metadata"
+    query = (filters.query or "").strip()
+    name_person_ids: list[str] = []
+    if query:
+        people = await fetch_named_people(client)
+        matched_ids = [
+            p["id"] for p in people if p.get("id") and person_name_matches_query(p.get("name") or "", query)
+        ]
+        if matched_ids and filters.personIds:
+            chip_ids = set(filters.personIds)
+            name_person_ids = [pid for pid in matched_ids if pid in chip_ids]
+            if not name_person_ids:
+                return PaginatedResponse(
+                    items=[], total=0, page=filters.page, size=filters.size, hasMore=False
+                )
+        else:
+            name_person_ids = matched_ids
 
     try:
+        if name_person_ids:
+            # Immich personIds are AND; name hits should be OR (e.g. last name → several people).
+            base = {k: v for k, v in search_payload.items() if k not in ("personIds", "page", "size")}
+            items, has_more = await metadata_search_any_people(
+                client, base, name_person_ids, filters.page, filters.size
+            )
+            return PaginatedResponse(
+                items=items,
+                total=len(items),
+                page=filters.page,
+                size=filters.size,
+                hasMore=has_more,
+            )
+
+        if query:
+            search_payload["query"] = query
+            endpoint = "/api/search/smart"
+        else:
+            endpoint = "/api/search/metadata"
+
         response = await client.post(endpoint, json=search_payload)
         response.raise_for_status()
         data = response.json()
