@@ -1,37 +1,36 @@
 /**
- * Immich Read-Only Display - API Client
- * Handles all communication with the backend proxy
+ * Backend proxy client. Browser never talks to Immich directly.
  */
 
 const API = {
     baseUrl: '/api',
 
-    /**
-     * Generic fetch wrapper with error handling
-     */
     async request(endpoint, options = {}) {
         const url = `${this.baseUrl}${endpoint}`;
-        
         const config = {
             headers: {
                 'Content-Type': 'application/json',
-                ...options.headers
+                ...options.headers,
             },
-            ...options
+            ...options,
         };
 
         try {
             const response = await fetch(url, config);
-            
+
+            if (response.status === 401) {
+                window.location.href = '/gate';
+                throw new APIError('Authentication required', 401);
+            }
+
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new APIError(
                     errorData.detail || `HTTP ${response.status}`,
-                    response.status
+                    response.status,
                 );
             }
 
-            // Handle streaming responses (images, videos)
             if (options.blob) {
                 return response.blob();
             }
@@ -45,9 +44,6 @@ const API = {
         }
     },
 
-    /**
-     * GET request
-     */
     async get(endpoint, params = {}) {
         const searchParams = new URLSearchParams();
         Object.entries(params).forEach(([key, value]) => {
@@ -55,53 +51,35 @@ const API = {
                 searchParams.append(key, value);
             }
         });
-        
+
         const queryString = searchParams.toString();
         const url = queryString ? `${endpoint}?${queryString}` : endpoint;
-        
         return this.request(url);
     },
 
-    /**
-     * POST request
-     */
     async post(endpoint, data = {}) {
         return this.request(endpoint, {
             method: 'POST',
-            body: JSON.stringify(data)
+            body: JSON.stringify(data),
         });
     },
 
-    // ========================================================================
-    // Health & Info
-    // ========================================================================
+    async delete(endpoint) {
+        return this.request(endpoint, { method: 'DELETE' });
+    },
 
+    // Health
     async getHealth() {
         return this.get('/health');
     },
 
-    async getServerInfo() {
-        return this.get('/server-info');
-    },
-
-    // ========================================================================
     // Assets
-    // ========================================================================
-
-    async getAssets(page = 1, size = 50) {
-        return this.get('/assets', { page, size });
-    },
-
     async getAsset(assetId) {
         return this.get(`/assets/${assetId}`);
     },
 
     getThumbnailUrl(assetId, size = 'thumbnail') {
         return `${this.baseUrl}/assets/${assetId}/thumbnail?size=${size}`;
-    },
-
-    getOriginalUrl(assetId) {
-        return `${this.baseUrl}/assets/${assetId}/original`;
     },
 
     getDownloadUrl(assetId) {
@@ -112,10 +90,24 @@ const API = {
         return `${this.baseUrl}/assets/${assetId}/video/playback`;
     },
 
-    // ========================================================================
-    // Search
-    // ========================================================================
+    // Social (reactions + comments)
+    async getAssetSocial(assetId) {
+        return this.get(`/assets/${assetId}/social`);
+    },
 
+    async toggleReaction(assetId, payload) {
+        return this.post(`/assets/${assetId}/reactions`, payload);
+    },
+
+    async addComment(assetId, payload) {
+        return this.post(`/assets/${assetId}/comments`, payload);
+    },
+
+    async deleteComment(commentId) {
+        return this.delete(`/comments/${commentId}`);
+    },
+
+    // Search
     async search(filters) {
         return this.post('/search', filters);
     },
@@ -124,34 +116,16 @@ const API = {
         return this.get('/search/suggestions');
     },
 
-    // ========================================================================
     // People
-    // ========================================================================
-
     async getPeople(withHidden = false) {
         return this.get('/people', { withHidden });
-    },
-
-    async getPerson(personId) {
-        return this.get(`/people/${personId}`);
     },
 
     getPersonThumbnailUrl(personId) {
         return `${this.baseUrl}/people/${personId}/thumbnail`;
     },
-
-    // ========================================================================
-    // Statistics
-    // ========================================================================
-
-    async getStatistics() {
-        return this.get('/statistics');
-    }
 };
 
-/**
- * Custom API Error class
- */
 class APIError extends Error {
     constructor(message, status) {
         super(message);
@@ -160,6 +134,5 @@ class APIError extends Error {
     }
 }
 
-// Export for use in other modules
 window.API = API;
 window.APIError = APIError;

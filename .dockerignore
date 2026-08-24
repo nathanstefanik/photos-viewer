@@ -1,0 +1,11 @@
+.git
+.env
+.DS_Store
+**/._*
+__pycache__
+*.pyc
+.venv
+venv
+data
+README.md
+example.env

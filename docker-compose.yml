@@ -1,55 +1,21 @@
-version: '3.8'
-
 services:
-  # Backend API
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+  viewer:
+    build: .
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "8080:8000"
+    env_file:
+      - .env
     environment:
-      # REQUIRED: Set these in .env file or pass via command line
-      - IMMICH_URL=${IMMICH_URL}
-      - IMMICH_API_KEY=${IMMICH_API_KEY}
       - HOST=0.0.0.0
       - PORT=8000
-      - DEBUG=${DEBUG:-false}
-      # Keep this as a JSON array string so pydantic can parse it without errors
-      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:3000"]}
-    restart: unless-stopped
-    networks:
-      - immich-gallery
-    # Allow access to host network for reaching external Immich
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/api/health')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-  # Frontend (simple nginx)
-  frontend:
-    image: nginx:alpine
-    ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      - TOKENS_DB_PATH=/data/tokens.db
     volumes:
-      - ./frontend:/usr/share/nginx/html:ro
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      backend:
-        condition: service_started
+      # Host bind mount so access codes + comments/reactions survive rebuilds
+      - ./data:/data
     restart: unless-stopped
-    networks:
-      - immich-gallery
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
-
-networks:
-  immich-gallery:
-    driver: bridge
+      start_period: 15s

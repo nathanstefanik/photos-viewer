@@ -1,241 +1,74 @@
-# Immich Read-Only Display
+# Photos viewer
 
-A lightweight, read-only web interface for browsing photos and videos from your Immich server. This project acts as a search-and-display shell over Immich, not a replacement for its management features.
+Gated, read-only photo gallery for friends. Fork of
+[Immich View-Only Web Interface](https://github.com/JimmyeJones/Immich-View-Only-Web-Interface).
 
-## Features
+| Host | Who | Role |
+|------|-----|------|
+| `photos.example.com` | friends | this app |
+| `immich.example.com` | you | Immich admin |
 
-✅ **Read-Only Access** - Browse without risk of modifications  
-✅ **Full Search Capabilities** - People, cameras, locations, dates, media types  
-✅ **Responsive Gallery** - Grid layout with lazy loading and infinite scroll  
-✅ **Full-Screen Viewer** - Image zoom, video playback, metadata sidebar  
-✅ **URL State** - Shareable and bookmarkable search URLs  
-✅ **Dark Mode** - System preference detection with manual toggle  
-✅ **Keyboard Navigation** - Arrow keys, escape, info toggle  
-
-## Architecture
+Friends never talk to Immich. The browser only hits this app; Immich API calls (including CLIP smart search) happen server-side with a scoped API key.
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│                 │     │                 │     │                 │
-│    Frontend     │────▶│  Backend Proxy  │────▶│     Immich      │
-│   (HTML/JS)     │     │    (FastAPI)    │     │      API        │
-│                 │     │                 │     │                 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+friend → reverse proxy → viewer → Immich (LAN)
 ```
 
-- **Frontend**: Lightweight SPA with vanilla JavaScript
-- **Backend**: Thin FastAPI proxy that secures your Immich API key
-- **Immich**: Your photo library remains the single source of truth
+Host-specific domains, IPs, and deploy commands live in `LOCAL.md` (gitignored). Copy from this README’s placeholders when setting up a new machine.
 
-## Quick Start
+## Security model
 
-### Prerequisites
+1. **Allowlisted proxy** — only read routes (assets, thumbs, people, search). No upload/delete/PATCH.
+2. **Scoped Immich key** — `asset.read`, `asset.view`, `asset.download`, `person.read`, `server.about`.
+3. **Access codes** — 6-char verbal codes (`ABC-DEF`) or `/t/ABCDEF` links → HttpOnly session cookie. Revoke per code.
 
-- Python 3.10+
-- Immich server with API access
-- Immich API key (generate in User Settings → API Keys)
+Text search uses Immich’s existing `/api/search/smart` (CLIP). Filter-only queries use `/api/search/metadata`.
 
-### Installation
+## Config
 
-1. **Clone or download this project**
+Copy `example.env` → `.env` (never commit secrets):
 
-2. **Set up the backend**
+- `IMMICH_URL` — LAN Immich, e.g. `http://192.168.1.10:2283`
+- `IMMICH_API_KEY` — scoped key from Immich
+- `SESSION_SECRET` — `openssl rand -hex 32`
+- `PUBLIC_BASE_URL` — public HTTPS origin, e.g. `https://photos.example.com`
+- `CORS_ORIGINS` — usually the same origin as `PUBLIC_BASE_URL`
+
+## Deploy
+
+Build and run with Docker Compose on the host that can reach Immich:
 
 ```bash
-cd backend
-
-# Create virtual environment
-python -m venv venv
-
-# Activate it
-# Windows:
-venv\Scripts\activate
-# Linux/Mac:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
+docker compose up -d --build
 ```
 
-3. **Configure environment**
+App listens on `:8080` by default. Put a TLS-terminating reverse proxy in front for the public hostname.
+
+Access codes, comments, and reactions live in `./data/` (bind-mounted to `/data` in the container). That directory survives image rebuilds; do not delete it when redeploying.
+
+If you previously used the named Docker volume and need to keep existing data:
 
 ```bash
-# Copy example config
-cp ../.env.example .env
-
-# Edit .env with your settings
-# Required: IMMICH_URL and IMMICH_API_KEY
+mkdir -p ./data
+docker run --rm -v photos-viewer_viewer-data:/from -v "$(pwd)/data:/to" alpine cp -a /from/. /to/
 ```
 
-4. **Run the backend**
+## Access codes
 
 ```bash
-python run.py
+docker compose exec viewer python cli.py issue --label friends
+docker compose exec viewer python cli.py list
+docker compose exec viewer python cli.py revoke <id>
 ```
 
-5. **Serve the frontend**
+`issue` prints a short **code** (say out loud) and a **link**. Guests can also enter the code at `/gate`.
 
-For development, you can use Python's built-in server:
-
-```bash
-cd ../frontend
-python -m http.server 3000
-```
-
-Or use any static file server (nginx, Apache, etc.)
-
-6. **Open in browser**
-
-Navigate to `http://localhost:3000`
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `IMMICH_URL` | Yes | `http://localhost:2283` | Your Immich server URL |
-| `IMMICH_API_KEY` | Yes | - | Your Immich API key |
-| `HOST` | No | `0.0.0.0` | Backend host to bind |
-| `PORT` | No | `8000` | Backend port |
-| `DEBUG` | No | `false` | Enable debug mode |
-| `CORS_ORIGINS` | No | `localhost` | Allowed CORS origins |
-
-### API Key Security
-
-The API key is **never** exposed to the browser. It's stored only on the backend server and used to authenticate requests to Immich.
-
-## API Endpoints
-
-### Assets
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/assets` | GET | Get paginated assets |
-| `/api/assets/{id}` | GET | Get asset details |
-| `/api/assets/{id}/thumbnail` | GET | Get asset thumbnail |
-| `/api/assets/{id}/original` | GET | Get original asset |
-| `/api/assets/{id}/video/playback` | GET | Get video for playback |
-
-### Search
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/search` | POST | Search assets with filters |
-| `/api/search/suggestions` | GET | Get filter dropdown options |
-
-### People
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/people` | GET | Get list of named people |
-| `/api/people/{id}` | GET | Get person details |
-| `/api/people/{id}/thumbnail` | GET | Get person face thumbnail |
-
-### System
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/health` | GET | Check backend and Immich status |
-| `/api/server-info` | GET | Get Immich server info |
-| `/api/statistics` | GET | Get asset statistics |
-
-## Search Filters
-
-All search is delegated to Immich's API. The following filters are supported:
-
-- **Text Query**: Searches file names
-- **People**: Multi-select person filter
-- **Date Range**: Taken date from/to
-- **Media Type**: Photos, Videos, or All
-- **Camera**: Make and Model
-- **Location**: Country and City
-
-Filters are reflected in the URL for sharing and bookmarking:
+## Layout
 
 ```
-/search?q=vacation&people=abc123,def456&from=2024-01-01&type=IMAGE&country=France
+backend/     FastAPI proxy, auth, token CLI
+frontend/    static SPA (Immich-styled timeline)
+Dockerfile   single image: API + static
 ```
 
-## Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `←` `→` | Navigate between photos in lightbox |
-| `Escape` | Close lightbox |
-| `i` | Toggle info sidebar in lightbox |
-
-## Production Deployment
-
-### Using Gunicorn
-
-```bash
-cd backend
-gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker -b 0.0.0.0:8000
-```
-
-### Using Docker (example Dockerfile)
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY backend/ .
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-### Nginx Configuration
-
-```nginx
-server {
-    listen 80;
-    server_name gallery.example.com;
-
-    # Frontend static files
-    location / {
-        root /var/www/immich-gallery/frontend;
-        try_files $uri $uri/ /index.html;
-    }
-
-    # Backend API proxy
-    location /api/ {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
-```
-
-## Design Principles
-
-This project follows strict design principles:
-
-1. **Immich is the database** - No local storage of assets or metadata
-2. **Search is delegated** - All filtering uses Immich's search API
-3. **Stateless frontend** - All state derived from API queries
-4. **Read-only** - No mutations except session/auth
-
-## Non-Goals
-
-This project intentionally does NOT:
-
-- Upload assets
-- Edit metadata
-- Tag or recognize people
-- Modify albums
-- Replace the Immich UI
-
-This is a **viewer**, not a manager.
-
-## License
-
-MIT License - See LICENSE file for details.
-
-## Acknowledgments
-
-- [Immich](https://immich.app/) - The amazing self-hosted photo platform
-- [FastAPI](https://fastapi.tiangolo.com/) - Modern Python web framework
+Upstream git remote: `upstream` → JimmyeJones/Immich-View-Only-Web-Interface.

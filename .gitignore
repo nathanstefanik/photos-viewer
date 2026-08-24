@@ -1,32 +1,11 @@
-# Byte-compiled / optimized / DLL files
+.env
 __pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual environments
-venv/
-env/
+*.pyc
 .venv/
-.env
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
+venv/
+data/
+*.db
 .DS_Store
-Thumbs.db
-
-# Logs
-*.log
-logs/
-
-# Local config (contains secrets)
-.env
-
-# Build outputs
-dist/
-build/
-*.egg-info/
+._*
+LOCAL.md
+*.local.md

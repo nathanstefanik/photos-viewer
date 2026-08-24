@@ -1,10 +1,8 @@
 /**
- * Immich Read-Only Display - Gallery Component
- * Handles the grid display of assets
+ * Day-grouped photo grid with infinite scroll.
  */
 
 const Gallery = {
-    // DOM Elements
     elements: {
         gallery: null,
         galleryLoading: null,
@@ -16,18 +14,13 @@ const Gallery = {
         errorMessage: null,
         retryBtn: null,
         resultCount: null,
-        activeFilters: null
+        activeFilters: null,
     },
 
-    // Intersection Observer for lazy loading
     observer: null,
 
-    /**
-     * Initialize the gallery
-     */
     init() {
-        // Cache DOM elements
-        this.elements.gallery = document.getElementById('gallery');
+        this.elements.gallery = document.getElementById('timeline');
         this.elements.galleryLoading = document.getElementById('gallery-loading');
         this.elements.loadMoreContainer = document.getElementById('load-more-container');
         this.elements.loadMoreBtn = document.getElementById('load-more-btn');
@@ -39,60 +32,52 @@ const Gallery = {
         this.elements.resultCount = document.getElementById('result-count');
         this.elements.activeFilters = document.getElementById('active-filters');
 
-        // Setup event listeners
         this.elements.loadMoreBtn?.addEventListener('click', () => this.loadMore());
         this.elements.retryBtn?.addEventListener('click', () => this.reload());
 
-        // Setup intersection observer for infinite scroll
         this.setupInfiniteScroll();
 
-        // Subscribe to state changes
         State.subscribe((newState, oldState) => {
             this.onStateChange(newState, oldState);
         });
     },
 
-    /**
-     * Setup infinite scroll observer
-     */
     setupInfiniteScroll() {
         this.observer = new IntersectionObserver(
             (entries) => {
                 const entry = entries[0];
-                if (entry.isIntersecting && !State.getProperty('isLoadingMore') && State.getProperty('hasMore')) {
+                if (
+                    entry.isIntersecting &&
+                    !State.getProperty('isLoadingMore') &&
+                    State.getProperty('hasMore')
+                ) {
                     this.loadMore();
                 }
             },
-            { rootMargin: '200px' }
+            { rootMargin: '200px' },
         );
 
-        // Observe the load more container
         if (this.elements.loadMoreContainer) {
             this.observer.observe(this.elements.loadMoreContainer);
         }
     },
 
-    /**
-     * Handle state changes
-     */
     onStateChange(newState, oldState) {
-        // Update loading states
         if (newState.isLoading !== oldState.isLoading) {
-            this.elements.galleryLoading.hidden = !newState.isLoading || newState.assets.length > 0;
+            this.elements.galleryLoading.hidden =
+                !newState.isLoading || newState.assets.length > 0;
         }
 
-        // Update result count
-        if (newState.total !== oldState.total || newState.assets.length !== oldState.assets.length) {
+        if (
+            newState.total !== oldState.total ||
+            newState.assets.length !== oldState.assets.length
+        ) {
             this.updateResultCount(newState);
         }
 
-        // Update active filters display
         this.updateActiveFilters(newState);
     },
 
-    /**
-     * Load assets (initial or with filters)
-     */
     async load() {
         State.set({ isLoading: true, error: null });
         this.showLoading();
@@ -103,11 +88,11 @@ const Gallery = {
 
             State.set({
                 assets: response.items || [],
-                // Preserve a 0 total if API returns it; fall back to items length when missing
+                // Prefer API total (including 0); fall back to page length when omitted
                 total: response.total ?? (response.items ? response.items.length : 0),
                 page: response.page || 1,
                 hasMore: response.hasMore !== false,
-                isLoading: false
+                isLoading: false,
             });
 
             this.render();
@@ -119,9 +104,6 @@ const Gallery = {
         }
     },
 
-    /**
-     * Load more assets (pagination)
-     */
     async loadMore() {
         if (State.getProperty('isLoadingMore') || !State.getProperty('hasMore')) {
             return;
@@ -133,7 +115,6 @@ const Gallery = {
         try {
             const payload = State.buildSearchPayload(true);
             const response = await API.search(payload);
-
             const currentAssets = State.getProperty('assets');
             const newAssets = response.items || [];
 
@@ -141,7 +122,7 @@ const Gallery = {
                 assets: [...currentAssets, ...newAssets],
                 page: response.page || State.getProperty('page') + 1,
                 hasMore: response.hasMore !== false && newAssets.length > 0,
-                isLoadingMore: false
+                isLoadingMore: false,
             });
 
             this.appendItems(newAssets);
@@ -153,20 +134,12 @@ const Gallery = {
         }
     },
 
-    /**
-     * Reload gallery
-     */
     reload() {
         this.load();
     },
 
-    /**
-     * Render the full gallery
-     */
     render() {
         const assets = State.getProperty('assets');
-        
-        // Clear gallery (except loading element)
         this.clearGallery();
 
         if (assets.length === 0) {
@@ -177,36 +150,96 @@ const Gallery = {
         this.hideEmpty();
         this.hideError();
 
-        // Create gallery items
         const fragment = document.createDocumentFragment();
+        let currentKey = null;
+        let grid = null;
+
         assets.forEach((asset, index) => {
-            fragment.appendChild(this.createGalleryItem(asset, index));
+            const key = this.dayKey(asset.localDateTime || asset.fileCreatedAt);
+            if (key !== currentKey) {
+                currentKey = key;
+                const group = document.createElement('section');
+                group.className = 'day-group';
+
+                const header = document.createElement('h2');
+                header.className = 'day-header';
+                header.textContent = this.dayLabel(asset.localDateTime || asset.fileCreatedAt);
+                group.appendChild(header);
+
+                grid = document.createElement('div');
+                grid.className = 'gallery';
+                group.appendChild(grid);
+                fragment.appendChild(group);
+            }
+            grid.appendChild(this.createGalleryItem(asset, index));
         });
 
         this.elements.gallery.appendChild(fragment);
-
-        // Show load more if there are more
         this.elements.loadMoreContainer.hidden = !State.getProperty('hasMore');
     },
 
-    /**
-     * Append items to existing gallery
-     */
+    /** Append a page while continuing the last day group when dates match. */
     appendItems(assets) {
         const currentLength = State.getProperty('assets').length - assets.length;
-        
-        const fragment = document.createDocumentFragment();
+        let grid = this.elements.gallery.querySelector('.day-group:last-of-type .gallery');
+        let currentKey = null;
+
+        if (grid) {
+            const lastAsset = State.getProperty('assets')[currentLength - 1];
+            currentKey = lastAsset
+                ? this.dayKey(lastAsset.localDateTime || lastAsset.fileCreatedAt)
+                : null;
+        }
+
         assets.forEach((asset, index) => {
-            fragment.appendChild(this.createGalleryItem(asset, currentLength + index));
+            const key = this.dayKey(asset.localDateTime || asset.fileCreatedAt);
+            if (key !== currentKey || !grid) {
+                currentKey = key;
+                const group = document.createElement('section');
+                group.className = 'day-group';
+
+                const header = document.createElement('h2');
+                header.className = 'day-header';
+                header.textContent = this.dayLabel(asset.localDateTime || asset.fileCreatedAt);
+                group.appendChild(header);
+
+                grid = document.createElement('div');
+                grid.className = 'gallery';
+                group.appendChild(grid);
+                this.elements.gallery.appendChild(group);
+            }
+            grid.appendChild(this.createGalleryItem(asset, currentLength + index));
         });
 
-        this.elements.gallery.appendChild(fragment);
         this.elements.loadMoreContainer.hidden = !State.getProperty('hasMore');
     },
 
-    /**
-     * Create a single gallery item element
-     */
+    dayKey(dateString) {
+        if (!dateString) return 'unknown';
+        const d = new Date(dateString);
+        if (Number.isNaN(d.getTime())) return 'unknown';
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    },
+
+    dayLabel(dateString) {
+        if (!dateString) return 'Unknown';
+        try {
+            const d = new Date(dateString);
+            const now = new Date();
+            const opts = { weekday: 'long', month: 'long', day: 'numeric' };
+            if (d.getFullYear() !== now.getFullYear()) {
+                opts.year = 'numeric';
+            }
+            return d.toLocaleDateString(undefined, opts);
+        } catch {
+            return 'Unknown';
+        }
+    },
+
+    thumbSize() {
+        return document.documentElement.dataset.view === 'large' ? 'preview' : 'thumbnail';
+    },
+
     createGalleryItem(asset, index) {
         const item = document.createElement('div');
         item.className = 'gallery-item';
@@ -215,22 +248,18 @@ const Gallery = {
         item.setAttribute('data-asset-id', asset.id);
         item.setAttribute('data-index', index);
 
-        // Create thumbnail
         const img = document.createElement('img');
         img.className = 'loading';
         img.alt = asset.originalFileName || 'Photo';
         img.loading = 'lazy';
-        
-        // Set thumbnail source
-        img.src = API.getThumbnailUrl(asset.id, 'thumbnail');
+        img.src = API.getThumbnailUrl(asset.id, this.thumbSize());
         img.onload = () => img.classList.remove('loading');
         img.onerror = () => {
-            img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23ccc" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%23999" font-size="12">Error</text></svg>';
+            img.src =
+                'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23ccc" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%23999" font-size="12">Error</text></svg>';
         };
-
         item.appendChild(img);
 
-        // Add video indicator if it's a video
         if (asset.type === 'VIDEO') {
             const indicator = document.createElement('div');
             indicator.className = 'video-indicator';
@@ -242,18 +271,12 @@ const Gallery = {
             item.appendChild(indicator);
         }
 
-        // Add overlay with date
         const overlay = document.createElement('div');
         overlay.className = 'gallery-item-overlay';
         overlay.textContent = this.formatDate(asset.localDateTime || asset.fileCreatedAt);
         item.appendChild(overlay);
 
-        // Click handler
-        item.addEventListener('click', () => {
-            Lightbox.open(asset, index);
-        });
-
-        // Keyboard handler
+        item.addEventListener('click', () => Lightbox.open(asset, index));
         item.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
@@ -264,27 +287,19 @@ const Gallery = {
         return item;
     },
 
-    /**
-     * Format date for display
-     */
     formatDate(dateString) {
         if (!dateString) return '';
-        
         try {
-            const date = new Date(dateString);
-            return date.toLocaleDateString(undefined, {
+            return new Date(dateString).toLocaleDateString(undefined, {
                 year: 'numeric',
                 month: 'short',
-                day: 'numeric'
+                day: 'numeric',
             });
         } catch {
             return '';
         }
     },
 
-    /**
-     * Update result count display
-     */
     updateResultCount(state) {
         const total = state.total;
         const showing = state.assets.length;
@@ -294,25 +309,19 @@ const Gallery = {
             return;
         }
 
-        // If API gave a real total and we haven't loaded all yet
         if (Number.isFinite(total) && total > 0 && showing < total) {
             this.elements.resultCount.textContent = `Showing ${showing} of ${total} items`;
             return;
         }
 
-        // If we don't know the total but more pages exist, indicate partial count
         if (state.hasMore) {
             this.elements.resultCount.textContent = `Showing ${showing}+ items`;
             return;
         }
 
-        // Otherwise, we have the full set loaded
         this.elements.resultCount.textContent = `${showing} items`;
     },
 
-    /**
-     * Update active filters display
-     */
     updateActiveFilters(state) {
         const container = this.elements.activeFilters;
         container.innerHTML = '';
@@ -325,9 +334,9 @@ const Gallery = {
 
         if (state.personIds.length > 0) {
             const people = State.getProperty('people') || [];
-            const peopleById = new Map(people.map(p => [p.id, p]));
+            const peopleById = new Map(people.map((p) => [p.id, p]));
 
-            state.personIds.forEach(id => {
+            state.personIds.forEach((id) => {
                 const person = peopleById.get(id);
                 const label = person?.name?.trim() || 'Unnamed person';
                 filters.push({ label, key: 'person', value: id });
@@ -335,35 +344,28 @@ const Gallery = {
         }
 
         if (state.dateFrom || state.dateTo) {
-            const label = state.dateFrom && state.dateTo 
-                ? `${state.dateFrom} - ${state.dateTo}`
-                : state.dateFrom 
-                    ? `From ${state.dateFrom}`
-                    : `Until ${state.dateTo}`;
+            const label =
+                state.dateFrom && state.dateTo
+                    ? `${state.dateFrom} - ${state.dateTo}`
+                    : state.dateFrom
+                      ? `From ${state.dateFrom}`
+                      : `Until ${state.dateTo}`;
             filters.push({ label, key: 'date' });
         }
 
         if (state.mediaType !== 'ALL') {
-            filters.push({ label: state.mediaType === 'IMAGE' ? 'Photos' : 'Videos', key: 'mediaType' });
+            filters.push({
+                label: state.mediaType === 'IMAGE' ? 'Photos' : 'Videos',
+                key: 'mediaType',
+            });
         }
 
-        if (state.cameraMake) {
-            filters.push({ label: state.cameraMake, key: 'cameraMake' });
-        }
+        if (state.cameraMake) filters.push({ label: state.cameraMake, key: 'cameraMake' });
+        if (state.cameraModel) filters.push({ label: state.cameraModel, key: 'cameraModel' });
+        if (state.country) filters.push({ label: state.country, key: 'country' });
+        if (state.city) filters.push({ label: state.city, key: 'city' });
 
-        if (state.cameraModel) {
-            filters.push({ label: state.cameraModel, key: 'cameraModel' });
-        }
-
-        if (state.country) {
-            filters.push({ label: state.country, key: 'country' });
-        }
-
-        if (state.city) {
-            filters.push({ label: state.city, key: 'city' });
-        }
-
-        filters.forEach(filter => {
+        filters.forEach((filter) => {
             const tag = document.createElement('span');
             tag.className = 'filter-tag';
             tag.innerHTML = `
@@ -375,18 +377,13 @@ const Gallery = {
                     </svg>
                 </button>
             `;
-
-            tag.querySelector('button').addEventListener('click', (e) => {
+            tag.querySelector('button').addEventListener('click', () => {
                 this.removeFilter(filter.key, filter.value);
             });
-
             container.appendChild(tag);
         });
     },
 
-    /**
-     * Remove a specific filter
-     */
     removeFilter(key, value) {
         const updates = {};
 
@@ -395,11 +392,12 @@ const Gallery = {
                 updates.query = '';
                 document.getElementById('search-input').value = '';
                 break;
-            case 'person':
-                const personIds = State.getProperty('personIds').filter(id => id !== value);
+            case 'person': {
+                const personIds = State.getProperty('personIds').filter((id) => id !== value);
                 updates.personIds = personIds;
                 Filters.updatePeopleChips(personIds);
                 break;
+            }
             case 'date':
                 updates.dateFrom = null;
                 updates.dateTo = null;
@@ -436,42 +434,26 @@ const Gallery = {
         this.load();
     },
 
-    /**
-     * Clear gallery items
-     */
     clearGallery() {
-        const items = this.elements.gallery.querySelectorAll('.gallery-item');
-        items.forEach(item => item.remove());
+        this.elements.gallery.querySelectorAll('.day-group').forEach((el) => el.remove());
     },
 
-    /**
-     * Show loading state
-     */
     showLoading() {
         this.elements.galleryLoading.hidden = false;
         this.elements.emptyState.hidden = true;
         this.elements.errorState.hidden = true;
     },
 
-    /**
-     * Show loading more indicator
-     */
     showLoadingMore() {
         this.elements.loadMoreBtn.hidden = true;
         this.elements.loadingIndicator.hidden = false;
     },
 
-    /**
-     * Hide loading more indicator
-     */
     hideLoadingMore() {
         this.elements.loadMoreBtn.hidden = false;
         this.elements.loadingIndicator.hidden = true;
     },
 
-    /**
-     * Show empty state
-     */
     showEmpty() {
         this.elements.galleryLoading.hidden = true;
         this.elements.emptyState.hidden = false;
@@ -479,31 +461,22 @@ const Gallery = {
         this.elements.loadMoreContainer.hidden = true;
     },
 
-    /**
-     * Hide empty state
-     */
     hideEmpty() {
         this.elements.emptyState.hidden = true;
     },
 
-    /**
-     * Show error state
-     */
     showError(message) {
         this.elements.galleryLoading.hidden = true;
         this.elements.emptyState.hidden = true;
         this.elements.errorState.hidden = false;
-        this.elements.errorMessage.textContent = message || 'Unable to load photos. Please try again.';
+        this.elements.errorMessage.textContent =
+            message || 'Unable to load photos. Please try again.';
         this.elements.loadMoreContainer.hidden = true;
     },
 
-    /**
-     * Hide error state
-     */
     hideError() {
         this.elements.errorState.hidden = true;
-    }
+    },
 };
 
-// Export for use in other modules
 window.Gallery = Gallery;

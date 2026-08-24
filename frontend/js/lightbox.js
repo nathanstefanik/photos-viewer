@@ -1,10 +1,8 @@
 /**
- * Immich Read-Only Display - Lightbox Component
- * Full-screen viewer with metadata sidebar
+ * Full-screen media viewer with metadata sidebar.
  */
 
 const Lightbox = {
-    // DOM Elements
     elements: {
         lightbox: null,
         overlay: null,
@@ -19,18 +17,16 @@ const Lightbox = {
         infoToggle: null,
         sidebar: null,
         sidebarClose: null,
-        sidebarContent: null
+        sidebarContent: null,
     },
 
-    // Current state
     currentAsset: null,
     currentIndex: -1,
+    // Bumps on every displayMedia call so stale video handlers ignore themselves
+    mediaGeneration: 0,
+    _videoCleanup: null,
 
-    /**
-     * Initialize lightbox
-     */
     init() {
-        // Cache DOM elements
         this.elements.lightbox = document.getElementById('lightbox');
         this.elements.overlay = document.getElementById('lightbox-overlay');
         this.elements.close = document.getElementById('lightbox-close');
@@ -46,7 +42,6 @@ const Lightbox = {
         this.elements.sidebarClose = document.getElementById('sidebar-close');
         this.elements.sidebarContent = document.getElementById('sidebar-content');
 
-        // Setup event listeners
         this.elements.overlay.addEventListener('click', () => this.close());
         this.elements.close.addEventListener('click', () => this.close());
         this.elements.prev.addEventListener('click', () => this.previous());
@@ -55,104 +50,99 @@ const Lightbox = {
         this.elements.sidebarClose?.addEventListener('click', () => this.toggleSidebar());
         this.elements.download?.addEventListener('click', (e) => {
             e.preventDefault();
-            console.log('Download button clicked', this.currentAsset);
             this.downloadAsset();
         });
 
-        // Keyboard navigation
         document.addEventListener('keydown', (e) => this.handleKeyboard(e));
-
-        // Prevent scroll when lightbox is open
-        this.elements.lightbox.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
+        this.elements.lightbox.addEventListener(
+            'wheel',
+            (e) => e.preventDefault(),
+            { passive: false },
+        );
     },
 
-    /**
-     * Open lightbox with asset
-     */
     async open(asset, index) {
         this.currentAsset = asset;
         this.currentIndex = index;
 
-        // Update state
         State.set({
             lightboxAssetId: asset.id,
-            lightboxIndex: index
+            lightboxIndex: index,
         });
 
-        // Show lightbox
         this.elements.lightbox.hidden = false;
         document.body.style.overflow = 'hidden';
-
-        // Show loading
         this.showLoading();
 
-        // Load full asset data if needed
         if (!asset.exifInfo) {
             try {
-                const fullAsset = await API.getAsset(asset.id);
-                this.currentAsset = fullAsset;
+                this.currentAsset = await API.getAsset(asset.id);
             } catch (error) {
                 console.error('Failed to load asset details:', error);
             }
         }
 
-        // Display media
         this.displayMedia(this.currentAsset);
-
-        // Update download link
         this.updateDownloadLink(this.currentAsset);
-
-        // Update navigation state
         this.updateNavigation();
-
-        // Update metadata sidebar
         this.updateMetadata(this.currentAsset);
+
+        if (window.Social) {
+            Social.loadForAsset(this.currentAsset.id);
+        }
     },
 
-    /**
-     * Close lightbox
-     */
     close() {
+        this.mediaGeneration++;
         this.elements.lightbox.hidden = true;
         document.body.style.overflow = '';
 
-        // Stop video playback and clear sources
-        this.elements.video.pause();
-        this.elements.video.innerHTML = '';
-        this.elements.video.load();
-
-        // Clear state
+        this.resetVideo();
         this.currentAsset = null;
         this.currentIndex = -1;
 
+        if (window.Social) {
+            Social.clear();
+        }
+
         State.set({
             lightboxAssetId: null,
-            lightboxIndex: -1
+            lightboxIndex: -1,
         });
     },
 
-    /**
-     * Navigate to previous asset
-     */
+    /** Stop playback, drop sources, and detach video listeners. */
+    resetVideo() {
+        if (typeof this._videoCleanup === 'function') {
+            this._videoCleanup();
+            this._videoCleanup = null;
+        }
+
+        const video = this.elements.video;
+        video.pause();
+        video.removeAttribute('src');
+        video.innerHTML = '';
+        video.removeAttribute('poster');
+        delete video.dataset.src;
+        delete video.dataset.loaded;
+        video.load();
+        video.hidden = true;
+        video.onerror = null;
+    },
+
     async previous() {
         if (this.currentIndex <= 0) return;
-
         const assets = State.getProperty('assets');
         const prevAsset = assets[this.currentIndex - 1];
-        
         if (prevAsset) {
             await this.open(prevAsset, this.currentIndex - 1);
         }
     },
 
-    /**
-     * Navigate to next asset
-     */
     async next() {
         const assets = State.getProperty('assets');
-        
+
         if (this.currentIndex >= assets.length - 1) {
-            // Try to load more if available
             if (State.getProperty('hasMore')) {
                 await Gallery.loadMore();
             }
@@ -160,202 +150,164 @@ const Lightbox = {
         }
 
         const nextAsset = assets[this.currentIndex + 1];
-        
         if (nextAsset) {
             await this.open(nextAsset, this.currentIndex + 1);
         }
     },
 
-    /**
-     * Display media (image or video)
-     */
     displayMedia(asset) {
+        const generation = ++this.mediaGeneration;
         const isVideo = asset.type === 'VIDEO';
 
-        // Hide both initially
+        // Always tear down any prior video so controls never leak onto photos
+        this.resetVideo();
         this.elements.image.hidden = true;
-        this.elements.video.hidden = true;
 
         if (isVideo) {
-            // Display video without fetching data until user initiates playback
-            const video = this.elements.video;
-            video.hidden = false;
-            video.preload = 'metadata'; // Only load metadata initially
-            video.poster = API.getThumbnailUrl(asset.id, 'preview');
-            
-            // Clear any existing sources and event listeners
-            video.innerHTML = '';
-            video.load();
-            
-            video.dataset.src = API.getVideoPlaybackUrl(asset.id);
-            video.dataset.loaded = '0';
-
-            // Hide the spinner until the user initiates playback so the poster is clickable
-            this.hideLoading();
-
-            // Monitor buffer and limit to ~30 seconds ahead
-            const monitorBuffer = () => {
-                if (video.paused || video.ended) return;
-                
-                try {
-                    const buffered = video.buffered;
-                    if (buffered.length > 0) {
-                        const currentTime = video.currentTime;
-                        const bufferedEnd = buffered.end(buffered.length - 1);
-                        const bufferedAhead = bufferedEnd - currentTime;
-                        
-                        // If buffered more than 30 seconds ahead, pause buffering by pausing/resuming
-                        if (bufferedAhead > 30) {
-                            // Browser will naturally stop buffering when paused
-                            // This is handled automatically, but we can log it
-                            console.log('Buffer limit reached:', bufferedAhead.toFixed(1), 'seconds ahead');
-                        }
-                    }
-                } catch (e) {
-                    // Ignore buffer check errors
-                }
-            };
-
-            const loadSourceOnce = async () => {
-                if (video.dataset.loaded === '1') return;
-                this.showLoading();
-                
-                // Create source element with proper type
-                const source = document.createElement('source');
-                source.src = video.dataset.src;
-                source.type = 'video/mp4'; // Immich typically serves MP4
-                video.appendChild(source);
-                
-                video.load();
-                video.dataset.loaded = '1';
-                
-                // Hide loading when video is ready to play
-                const hideLoadingOnReady = () => {
-                    this.hideLoading();
-                    video.removeEventListener('loadeddata', hideLoadingOnReady);
-                    video.removeEventListener('canplay', hideLoadingOnReady);
-                };
-                video.addEventListener('loadeddata', hideLoadingOnReady);
-                video.addEventListener('canplay', hideLoadingOnReady);
-                
-                // Monitor buffer periodically when playing
-                video.addEventListener('timeupdate', monitorBuffer);
-                
-                try {
-                    await video.play();
-                    this.hideLoading();
-                } catch (e) {
-                    // Autoplay might be blocked; user will click play
-                    this.hideLoading();
-                    console.log('Video autoplay blocked, user must click play');
-                }
-            };
-
-            // First user interaction loads the stream
-            const onUserInitiatedPlay = () => {
-                loadSourceOnce();
-                video.removeEventListener('click', onUserInitiatedPlay);
-                video.removeEventListener('play', onUserInitiatedPlay);
-            };
-
-            video.addEventListener('click', onUserInitiatedPlay);
-            video.addEventListener('play', onUserInitiatedPlay);
-
-            // Show loading when video is buffering
-            video.addEventListener('waiting', () => this.showLoading());
-            video.addEventListener('playing', () => this.hideLoading());
-            
-            video.onerror = (e) => {
-                this.hideLoading();
-                console.error('Failed to load video:', e);
-            };
+            this._displayVideo(asset, generation);
         } else {
-            // Display image
-            const img = this.elements.image;
-            img.alt = asset.originalFileName || 'Photo';
-            img.hidden = false;
-
-            // Start with small thumbnail, then load preview for better quality
-            const thumbnailUrl = API.getThumbnailUrl(asset.id, 'thumbnail');
-            const previewUrl = API.getThumbnailUrl(asset.id, 'preview');
-            
-            console.log('Loading image - thumbnail:', thumbnailUrl);
-            console.log('Will load preview in background:', previewUrl);
-
-            // Load small thumbnail first for instant display
-            img.src = thumbnailUrl;
-            img.onload = () => {
-                console.log('Thumbnail loaded successfully');
-                this.hideLoading();
-            };
-            img.onerror = () => {
-                this.hideLoading();
-                console.error('Failed to load thumbnail');
-            };
-
-            // Preload higher quality preview in background
-            const previewImg = new Image();
-            previewImg.src = previewUrl;
-            previewImg.onload = () => {
-                // Only switch to preview if still showing same asset
-                if (this.currentAsset?.id === asset.id) {
-                    console.log('Preview loaded, upgrading image quality');
-                    img.src = previewUrl;
-                }
-            };
+            this._displayImage(asset, generation);
         }
     },
 
-    /**
-     * Toggle sidebar visibility
-     */
-    toggleSidebar() {
-        const isHidden = this.elements.sidebar.hidden;
-        this.elements.sidebar.hidden = !isHidden;
+    _displayVideo(asset, generation) {
+        const video = this.elements.video;
+        video.hidden = false;
+        video.preload = 'metadata';
+        video.poster = API.getThumbnailUrl(asset.id, 'preview');
+        video.dataset.src = API.getVideoPlaybackUrl(asset.id);
+        video.dataset.loaded = '0';
+        this.hideLoading();
+
+        const loadSourceOnce = async () => {
+            if (generation !== this.mediaGeneration) return;
+            if (video.dataset.loaded === '1') return;
+            this.showLoading();
+
+            const source = document.createElement('source');
+            source.src = video.dataset.src;
+            source.type = 'video/mp4';
+            video.appendChild(source);
+
+            video.load();
+            video.dataset.loaded = '1';
+
+            const hideLoadingOnReady = () => {
+                if (generation !== this.mediaGeneration) return;
+                this.hideLoading();
+                video.removeEventListener('loadeddata', hideLoadingOnReady);
+                video.removeEventListener('canplay', hideLoadingOnReady);
+            };
+            video.addEventListener('loadeddata', hideLoadingOnReady);
+            video.addEventListener('canplay', hideLoadingOnReady);
+
+            try {
+                await video.play();
+            } catch {
+                // Autoplay blocked — user must click play
+            } finally {
+                if (generation === this.mediaGeneration) this.hideLoading();
+            }
+        };
+
+        const onUserInitiatedPlay = () => {
+            loadSourceOnce();
+            video.removeEventListener('click', onUserInitiatedPlay);
+            video.removeEventListener('play', onUserInitiatedPlay);
+        };
+
+        const onWaiting = () => {
+            if (generation === this.mediaGeneration) this.showLoading();
+        };
+        const onPlaying = () => {
+            if (generation === this.mediaGeneration) this.hideLoading();
+        };
+
+        video.addEventListener('click', onUserInitiatedPlay);
+        video.addEventListener('play', onUserInitiatedPlay);
+        video.addEventListener('waiting', onWaiting);
+        video.addEventListener('playing', onPlaying);
+
+        video.onerror = () => {
+            if (generation !== this.mediaGeneration) return;
+            this.hideLoading();
+            console.error('Failed to load video');
+        };
+
+        this._videoCleanup = () => {
+            video.removeEventListener('click', onUserInitiatedPlay);
+            video.removeEventListener('play', onUserInitiatedPlay);
+            video.removeEventListener('waiting', onWaiting);
+            video.removeEventListener('playing', onPlaying);
+        };
     },
 
-    /**
-     * Update navigation buttons state
-     */
+    _displayImage(asset, generation) {
+        const img = this.elements.image;
+        img.alt = asset.originalFileName || 'Photo';
+        img.hidden = false;
+
+        const thumbnailUrl = API.getThumbnailUrl(asset.id, 'thumbnail');
+        const previewUrl = API.getThumbnailUrl(asset.id, 'preview');
+
+        img.src = thumbnailUrl;
+        img.onload = () => {
+            if (generation !== this.mediaGeneration) return;
+            this.hideLoading();
+        };
+        img.onerror = () => {
+            if (generation !== this.mediaGeneration) return;
+            this.hideLoading();
+            console.error('Failed to load thumbnail');
+        };
+
+        // Progressive upgrade: show thumbnail first, swap to preview when ready
+        const previewImg = new Image();
+        previewImg.src = previewUrl;
+        previewImg.onload = () => {
+            if (this.currentAsset?.id === asset.id && generation === this.mediaGeneration) {
+                img.src = previewUrl;
+            }
+        };
+    },
+
+    toggleSidebar() {
+        this.elements.sidebar.hidden = !this.elements.sidebar.hidden;
+    },
+
     updateNavigation() {
         const assets = State.getProperty('assets');
-        
+
         this.elements.prev.disabled = this.currentIndex <= 0;
         this.elements.prev.style.opacity = this.currentIndex <= 0 ? '0.3' : '1';
-        
-        this.elements.next.disabled = this.currentIndex >= assets.length - 1 && !State.getProperty('hasMore');
+
+        this.elements.next.disabled =
+            this.currentIndex >= assets.length - 1 && !State.getProperty('hasMore');
         this.elements.next.style.opacity = this.elements.next.disabled ? '0.3' : '1';
     },
 
-    /**
-     * Update metadata sidebar
-     */
     updateMetadata(asset) {
-        // Date & Time
         const datetime = asset.localDateTime || asset.fileCreatedAt;
-        document.getElementById('meta-datetime').textContent = datetime 
+        document.getElementById('meta-datetime').textContent = datetime
             ? new Date(datetime).toLocaleString()
             : '-';
 
-        // Camera info
         const exif = asset.exifInfo || {};
         const camera = [exif.make, exif.model].filter(Boolean).join(' ');
         document.getElementById('meta-camera').textContent = camera || '-';
         document.getElementById('meta-lens').textContent = exif.lensModel || '-';
 
-        // EXIF settings
-        document.getElementById('meta-focal').textContent = exif.focalLength 
+        document.getElementById('meta-focal').textContent = exif.focalLength
             ? `${exif.focalLength}mm`
             : '-';
-        document.getElementById('meta-aperture').textContent = exif.fNumber 
+        document.getElementById('meta-aperture').textContent = exif.fNumber
             ? `f/${exif.fNumber}`
             : '-';
-        document.getElementById('meta-shutter').textContent = exif.exposureTime 
+        document.getElementById('meta-shutter').textContent = exif.exposureTime
             ? this.formatShutterSpeed(exif.exposureTime)
             : '-';
         document.getElementById('meta-iso').textContent = exif.iso || '-';
 
-        // Location
         const locationSection = document.getElementById('meta-location-section');
         const location = [exif.city, exif.state, exif.country].filter(Boolean).join(', ');
         if (location) {
@@ -365,13 +317,12 @@ const Lightbox = {
             locationSection.hidden = true;
         }
 
-        // People
         const peopleSection = document.getElementById('meta-people-section');
         const peopleContainer = document.getElementById('meta-people');
         peopleContainer.innerHTML = '';
 
         if (asset.people && asset.people.length > 0) {
-            asset.people.forEach(person => {
+            asset.people.forEach((person) => {
                 const chip = document.createElement('span');
                 chip.className = 'person-chip';
                 chip.innerHTML = `
@@ -380,12 +331,14 @@ const Lightbox = {
                 `;
                 chip.addEventListener('click', () => {
                     this.close();
-                    // Add person filter and search
                     const currentPersonIds = State.getProperty('personIds');
                     if (!currentPersonIds.includes(person.id)) {
-                        State.set({ personIds: [...currentPersonIds, person.id], page: 1, assets: [] });
+                        State.set({
+                            personIds: [...currentPersonIds, person.id],
+                            page: 1,
+                            assets: [],
+                        });
                         Filters.updatePeopleChips([...currentPersonIds, person.id]);
-                        // Open filter panel to show the active filter
                         Filters.showPanel();
                         Gallery.load();
                     }
@@ -397,24 +350,20 @@ const Lightbox = {
             peopleSection.hidden = true;
         }
 
-        // File info
         document.getElementById('meta-filename').textContent = asset.originalFileName || '-';
-        
-        const dimensions = asset.exifInfo?.exifImageWidth && asset.exifInfo?.exifImageHeight
-            ? `${asset.exifInfo.exifImageWidth} × ${asset.exifInfo.exifImageHeight}`
-            : '-';
+
+        const dimensions =
+            asset.exifInfo?.exifImageWidth && asset.exifInfo?.exifImageHeight
+                ? `${asset.exifInfo.exifImageWidth} × ${asset.exifInfo.exifImageHeight}`
+                : '-';
         document.getElementById('meta-dimensions').textContent = dimensions;
-        
+
         document.getElementById('meta-filesize').textContent = asset.exifInfo?.fileSizeInByte
             ? this.formatFileSize(asset.exifInfo.fileSizeInByte)
             : '-';
     },
 
-    /**
-     * Format shutter speed
-     */
     formatShutterSpeed(seconds) {
-        // Handle string fractions like "1/250" or numeric seconds
         let value = seconds;
 
         if (typeof seconds === 'string') {
@@ -439,38 +388,29 @@ const Lightbox = {
             const rounded = value >= 10 ? value.toFixed(0) : value.toFixed(1);
             return `${rounded}s`;
         }
-        const fraction = Math.round(1 / value);
-        return `1/${fraction}s`;
+        return `1/${Math.round(1 / value)}s`;
     },
 
-    /**
-     * Format file size
-     */
     formatFileSize(bytes) {
         const units = ['B', 'KB', 'MB', 'GB'];
         let size = bytes;
         let unitIndex = 0;
-        
+
         while (size >= 1024 && unitIndex < units.length - 1) {
             size /= 1024;
             unitIndex++;
         }
-        
+
         return `${size.toFixed(1)} ${units[unitIndex]}`;
     },
 
-    /**
-     * Update download link for the current asset
-     */
     updateDownloadLink(asset) {
         if (!this.elements.download) return;
         const isVideo = asset.type === 'VIDEO';
         this.elements.download.hidden = isVideo;
         this.elements.download.disabled = isVideo;
 
-        if (isVideo) {
-            return;
-        }
+        if (isVideo) return;
 
         this.elements.download.hidden = false;
         this.elements.download.disabled = false;
@@ -478,38 +418,22 @@ const Lightbox = {
         this.elements.download.dataset.fileName = asset.originalFileName || 'asset';
     },
 
-    /**
-     * Download the current asset
-     */
     async downloadAsset() {
-        if (!this.currentAsset) {
-            console.error('No current asset to download');
-            return;
-        }
-        
-        console.log('Starting download for asset:', this.currentAsset.id, this.currentAsset.originalFileName);
-        
+        if (!this.currentAsset) return;
+
         try {
-            const url = API.getDownloadUrl(this.currentAsset.id);
-            console.log('Download URL:', url);
-            
-            const response = await fetch(url);
-            console.log('Download response:', response.status, response.statusText);
-            
+            const response = await fetch(API.getDownloadUrl(this.currentAsset.id));
             if (!response.ok) {
                 throw new Error(`Download failed: ${response.statusText}`);
             }
-            
+
             const blob = await response.blob();
-            console.log('Blob created:', blob.size, 'bytes');
-            
             const blobUrl = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = blobUrl;
             link.download = this.currentAsset.originalFileName || 'asset';
             document.body.appendChild(link);
             link.click();
-            console.log('Download triggered');
             document.body.removeChild(link);
             window.URL.revokeObjectURL(blobUrl);
         } catch (error) {
@@ -518,11 +442,16 @@ const Lightbox = {
         }
     },
 
-    /**
-     * Handle keyboard navigation
-     */
     handleKeyboard(e) {
         if (this.elements.lightbox.hidden) return;
+
+        const tag = (e.target && e.target.tagName) || '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) {
+            if (e.key === 'Escape') {
+                this.close();
+            }
+            return;
+        }
 
         switch (e.key) {
             case 'Escape':
@@ -542,20 +471,13 @@ const Lightbox = {
         }
     },
 
-    /**
-     * Show loading indicator
-     */
     showLoading() {
         this.elements.loading.hidden = false;
     },
 
-    /**
-     * Hide loading indicator
-     */
     hideLoading() {
         this.elements.loading.hidden = true;
-    }
+    },
 };
 
-// Export for use in other modules
 window.Lightbox = Lightbox;
