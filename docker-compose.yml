@@ -2,7 +2,12 @@ services:
   viewer:
     build: .
     ports:
-      - "8080:8000"
+      # Loopback-only: the reverse proxy (Caddy) must run on this host and
+      # connect via 127.0.0.1. If it runs elsewhere, bind a specific reachable
+      # IP instead of re-opening this to 0.0.0.0 — the app has no TLS of its
+      # own and X-Forwarded-For trust (TRUSTED_PROXY_IPS) depends on the proxy
+      # being the only thing that can reach this port directly.
+      - "127.0.0.1:8080:8000"
     env_file:
       - .env
     environment:

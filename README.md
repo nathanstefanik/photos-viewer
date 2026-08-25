@@ -33,6 +33,12 @@ Copy `example.env` → `.env` (never commit secrets):
 - `SESSION_SECRET` — `openssl rand -hex 32`
 - `PUBLIC_BASE_URL` — public HTTPS origin, e.g. `https://photos.example.com`
 - `CORS_ORIGINS` — usually the same origin as `PUBLIC_BASE_URL`
+- `TRUST_X_FORWARDED_FOR` / `TRUSTED_PROXY_IPS` — only if a reverse proxy sits
+  in front and you want the `/t/{code}` rate limit keyed by the real client
+  IP. Both must be set together — `TRUSTED_PROXY_IPS` is the proxy's address
+  (or CIDR range); without it, `X-Forwarded-For` is just a header anyone
+  connecting directly can forge to dodge the rate limit. Leave both unset if
+  you're not fronting this with a proxy.
 
 ## Deploy
 

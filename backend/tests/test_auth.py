@@ -8,6 +8,7 @@ from app.auth import (
     SESSION_COOKIE,
     client_ip,
     current_token_id,
+    is_trusted_proxy,
     make_session_value,
     parse_session_value,
     require_session,
@@ -84,22 +85,65 @@ def test_session_cookie_max_age_already_expired_token():
     assert session_cookie_max_age(record) == 0
 
 
-def test_client_ip_prefers_xff_when_trusted(monkeypatch):
+def test_client_ip_prefers_xff_when_peer_is_trusted_proxy(monkeypatch):
     monkeypatch.setattr(settings, "trust_x_forwarded_for", True)
+    monkeypatch.setattr(settings, "trusted_proxy_ips", ["127.0.0.1"])
     req = FakeRequest(headers={"x-forwarded-for": "9.9.9.9, 1.1.1.1"}, client_host="127.0.0.1")
     assert client_ip(req) == "9.9.9.9"
 
 
-def test_client_ip_falls_back_to_real_ip_header(monkeypatch):
+def test_client_ip_falls_back_to_real_ip_header_when_trusted(monkeypatch):
     monkeypatch.setattr(settings, "trust_x_forwarded_for", True)
+    monkeypatch.setattr(settings, "trusted_proxy_ips", ["127.0.0.1"])
     req = FakeRequest(headers={"x-real-ip": "8.8.8.8"}, client_host="127.0.0.1")
     assert client_ip(req) == "8.8.8.8"
 
 
-def test_client_ip_ignores_xff_when_not_trusted(monkeypatch):
+def test_client_ip_ignores_xff_when_trust_disabled(monkeypatch):
     monkeypatch.setattr(settings, "trust_x_forwarded_for", False)
+    monkeypatch.setattr(settings, "trusted_proxy_ips", ["127.0.0.1"])
     req = FakeRequest(headers={"x-forwarded-for": "9.9.9.9"}, client_host="127.0.0.1")
     assert client_ip(req) == "127.0.0.1"
+
+
+def test_client_ip_ignores_xff_from_untrusted_peer(monkeypatch):
+    """The core of the fix: trust_x_forwarded_for=True alone must not be enough.
+
+    Without the peer matching trusted_proxy_ips, X-Forwarded-For is just a
+    header an attacker connecting directly can set to whatever they like —
+    honoring it here would let them bypass IP-based rate limiting for free.
+    """
+    monkeypatch.setattr(settings, "trust_x_forwarded_for", True)
+    monkeypatch.setattr(settings, "trusted_proxy_ips", ["10.0.0.1"])  # doesn't match peer
+    req = FakeRequest(headers={"x-forwarded-for": "9.9.9.9"}, client_host="6.6.6.6")
+    assert client_ip(req) == "6.6.6.6"
+
+
+def test_client_ip_no_trusted_proxies_configured(monkeypatch):
+    monkeypatch.setattr(settings, "trust_x_forwarded_for", True)
+    monkeypatch.setattr(settings, "trusted_proxy_ips", [])
+    req = FakeRequest(headers={"x-forwarded-for": "9.9.9.9"}, client_host="127.0.0.1")
+    assert client_ip(req) == "127.0.0.1"
+
+
+def test_is_trusted_proxy_matches_exact_ip(monkeypatch):
+    monkeypatch.setattr(settings, "trusted_proxy_ips", ["172.18.0.1"])
+    assert is_trusted_proxy("172.18.0.1")
+    assert not is_trusted_proxy("172.18.0.2")
+
+
+def test_is_trusted_proxy_matches_cidr(monkeypatch):
+    monkeypatch.setattr(settings, "trusted_proxy_ips", ["172.18.0.0/16"])
+    assert is_trusted_proxy("172.18.5.5")
+    assert not is_trusted_proxy("172.19.0.1")
+
+
+def test_is_trusted_proxy_rejects_garbage_and_empty(monkeypatch):
+    monkeypatch.setattr(settings, "trusted_proxy_ips", ["172.18.0.1"])
+    assert not is_trusted_proxy("not-an-ip")
+    assert not is_trusted_proxy(None)
+    monkeypatch.setattr(settings, "trusted_proxy_ips", [])
+    assert not is_trusted_proxy("172.18.0.1")
 
 
 def test_resolve_token_none_without_cookie():

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import hashlib
+import ipaddress
 import json
 import base64
 import time
@@ -55,18 +56,46 @@ def get_token_store(request: Request) -> TokenStore:
     return request.app.state.token_store
 
 
+def is_trusted_proxy(peer_ip: Optional[str]) -> bool:
+    """Whether peer_ip is allowed to set X-Forwarded-For/X-Real-IP for us.
+
+    X-Forwarded-For is just a request header — anyone who can reach this app
+    directly can set it to whatever they like. It's only meaningful when the
+    directly-connecting peer is a reverse proxy we control and trust to have
+    overwritten it correctly.
+    """
+    if not peer_ip or not settings.trusted_proxy_ips:
+        return False
+    try:
+        addr = ipaddress.ip_address(peer_ip)
+    except ValueError:
+        return False
+    for entry in settings.trusted_proxy_ips:
+        try:
+            if "/" in entry:
+                if addr in ipaddress.ip_network(entry, strict=False):
+                    return True
+            elif addr == ipaddress.ip_address(entry):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 def client_ip(request: Request) -> str:
-    """Real client IP when behind Caddy; otherwise the direct peer."""
-    if settings.trust_x_forwarded_for:
+    """Client IP for rate limiting: the forwarded address, but only when the
+    direct TCP peer is a trusted reverse proxy — otherwise the direct peer."""
+    peer = request.client.host if request.client and request.client.host else None
+
+    if settings.trust_x_forwarded_for and is_trusted_proxy(peer):
         xff = request.headers.get("x-forwarded-for")
         if xff:
             return xff.split(",")[0].strip()
         real_ip = request.headers.get("x-real-ip")
         if real_ip:
             return real_ip.strip()
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+
+    return peer or "unknown"
 
 
 def session_cookie_max_age(record: TokenRecord) -> int:

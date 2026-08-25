@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 import httpx
@@ -21,6 +22,7 @@ from ..ratelimit import redeem_allowed
 from ..tokens import TokenStore, normalize_token
 
 router = APIRouter()
+logger = logging.getLogger("photos_viewer.access")
 
 
 @router.get("/api/health")
@@ -42,22 +44,27 @@ async def health_check(client: httpx.AsyncClient = Depends(get_client)):
 async def redeem_token(raw_token: str, request: Request):
     ip = client_ip(request)
     if not redeem_allowed(ip):
+        logger.warning("access code redeem rate-limited ip=%s", ip)
         raise HTTPException(status_code=429, detail="Too many attempts; try again shortly")
 
     store: TokenStore = request.app.state.token_store
     code = normalize_token(raw_token)
     if len(code) != 6:
+        logger.warning("access code redeem failed (malformed) ip=%s", ip)
         return RedirectResponse(url="/gate?error=invalid", status_code=302)
 
     record = store.lookup_raw(code)
     if not record or not record.active:
+        logger.warning("access code redeem failed (invalid/revoked) ip=%s", ip)
         return RedirectResponse(url="/gate?error=invalid", status_code=302)
 
     cookie_age = session_cookie_max_age(record)
     if cookie_age <= 0:
+        logger.warning("access code redeem failed (expired) ip=%s token_id=%s", ip, record.id)
         return RedirectResponse(url="/gate?error=invalid", status_code=302)
 
     store.touch(record.id)
+    logger.info("access code redeemed ip=%s token_id=%s", ip, record.id)
     response = RedirectResponse(url="/", status_code=302)
     secure = settings.public_base_url.startswith("https://")
     response.set_cookie(

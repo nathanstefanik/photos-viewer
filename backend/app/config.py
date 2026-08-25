@@ -22,20 +22,26 @@ class Settings(BaseSettings):
     session_secret: str = ""
     tokens_db_path: str = "/data/tokens.db"
 
-    # Caddy terminates TLS and sets X-Forwarded-For; trust it for rate limits
-    trust_x_forwarded_for: bool = True
+    # X-Forwarded-For/X-Real-IP are attacker-controlled unless the direct TCP peer is
+    # a trusted reverse proxy — trusting them unconditionally lets anyone bypass
+    # IP-based rate limiting by forging the header. Off by default (safe: falls back
+    # to the direct peer address). Enable only alongside trusted_proxy_ips below.
+    trust_x_forwarded_for: bool = False
+    # IPs or CIDR ranges (e.g. Caddy's address, or your Docker bridge network) allowed
+    # to set X-Forwarded-For/X-Real-IP. Required for trust_x_forwarded_for to take effect.
+    trusted_proxy_ips: Annotated[List[str], NoDecode] = []
 
     cache_ttl_people: int = 300
     cache_ttl_suggestions: int = 600
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator("cors_origins", "trusted_proxy_ips", mode="before")
     @classmethod
-    def parse_cors_origins(cls, v):
+    def parse_str_list(cls, v):
         if isinstance(v, str):
             v = v.strip()
             if v.startswith("["):
                 return json.loads(v)
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
+            return [item.strip() for item in v.split(",") if item.strip()]
         return v
 
     model_config = {
