@@ -51,7 +51,12 @@ async def search_assets(
         search_payload["type"] = filters.type
 
     scoped_albums = album_ids_for_search(token)
-    if scoped_albums is not None:
+    if filters.albumId:
+        # Browsing a single album: still must be inside the token's allowlist.
+        if scoped_albums is not None and filters.albumId not in scoped_albums:
+            raise HTTPException(status_code=404, detail="Album not found")
+        search_payload["albumIds"] = [filters.albumId]
+    elif scoped_albums is not None:
         if not scoped_albums:
             return PaginatedResponse(
                 items=[], total=0, page=filters.page, size=filters.size, hasMore=False

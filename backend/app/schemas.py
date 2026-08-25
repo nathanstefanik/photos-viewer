@@ -13,6 +13,7 @@ from .validation import UUID_PATTERN
 class SearchFilters(BaseModel):
     query: Optional[str] = Field(None, max_length=500)
     personIds: Optional[List[str]] = None
+    albumId: Optional[str] = None
     make: Optional[str] = Field(None, max_length=100)
     model: Optional[str] = Field(None, max_length=100)
     country: Optional[str] = Field(None, max_length=100)
@@ -31,6 +32,13 @@ class SearchFilters(BaseModel):
             for pid in v:
                 if not UUID_PATTERN.match(pid):
                     raise ValueError(f"Invalid person ID: {pid}")
+        return v
+
+    @field_validator("albumId")
+    @classmethod
+    def validate_album_id(cls, v):
+        if v is not None and not UUID_PATTERN.match(v):
+            raise ValueError("Invalid album ID")
         return v
 
 

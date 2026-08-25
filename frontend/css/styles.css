@@ -1341,3 +1341,107 @@ html[data-view="large"] .gallery-item {
   color: var(--color-text-muted);
   font-size: 0.85rem;
 }
+
+/* Albums */
+
+.albums-backdrop {
+  position: fixed;
+  inset: 0;
+  top: var(--navbar-height);
+  z-index: calc(var(--z-sidebar) - 1);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.albums-backdrop[hidden] {
+  display: none !important;
+}
+
+.albums-modal {
+  position: fixed;
+  top: calc(var(--navbar-height) + 2rem);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(56rem, calc(100vw - 2rem));
+  max-height: calc(100vh - var(--navbar-height) - 4rem);
+  z-index: var(--z-sidebar);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.albums-modal[hidden] {
+  display: none !important;
+}
+
+.albums-modal-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.albums-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.albums-modal-header h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.albums-grid {
+  padding: 1.25rem;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 1rem;
+}
+
+.album-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.album-card img,
+.album-card-placeholder {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+}
+
+.album-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.album-card-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-card-count {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}

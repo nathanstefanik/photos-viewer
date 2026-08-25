@@ -124,6 +124,15 @@ const API = {
     getPersonThumbnailUrl(personId) {
         return `${this.baseUrl}/people/${personId}/thumbnail`;
     },
+
+    // Albums
+    async getAlbums() {
+        return this.get('/albums');
+    },
+
+    async getAlbum(albumId) {
+        return this.get(`/albums/${albumId}`);
+    },
 };
 
 class APIError extends Error {

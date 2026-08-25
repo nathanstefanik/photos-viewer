@@ -20,7 +20,7 @@ from .auth import current_token_id, unauthenticated_response
 from .cache import cache_manager
 from .config import settings
 from .deps import STATIC_DIR
-from .routers import assets, pages, people, search
+from .routers import albums, assets, pages, people, search
 from .routers import social as social_router
 from .security_headers import install_security_headers
 from .social import SocialStore
@@ -112,6 +112,7 @@ async def auth_gate(request: Request, call_next):
 
 app.include_router(pages.router)
 app.include_router(people.router)
+app.include_router(albums.router)
 app.include_router(search.router)
 app.include_router(assets.router)
 app.include_router(social_router.router)

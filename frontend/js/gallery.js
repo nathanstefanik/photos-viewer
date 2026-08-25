@@ -343,6 +343,13 @@ const Gallery = {
             });
         }
 
+        if (state.albumId) {
+            const albums = State.getProperty('albums') || [];
+            const album = albums.find((a) => a.id === state.albumId);
+            const label = album?.albumName?.trim() || 'Album';
+            filters.push({ label: `Album: ${label}`, key: 'album' });
+        }
+
         if (state.dateFrom || state.dateTo) {
             const label =
                 state.dateFrom && state.dateTo
@@ -402,6 +409,9 @@ const Gallery = {
                 Filters.updatePeopleChips(personIds);
                 break;
             }
+            case 'album':
+                updates.albumId = null;
+                break;
             case 'date':
                 updates.dateFrom = null;
                 updates.dateTo = null;

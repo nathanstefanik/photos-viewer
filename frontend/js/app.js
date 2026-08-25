@@ -1,5 +1,5 @@
 /**
- * Bootstraps theme, density, gallery, lightbox, social, and filters.
+ * Bootstraps theme, density, gallery, lightbox, social, filters, and albums.
  */
 
 const App = {
@@ -18,6 +18,7 @@ const App = {
         Lightbox.init();
         Social.init();
         Filters.init();
+        Albums.init();
 
         State.loadFromURL();
         await this.checkHealth();

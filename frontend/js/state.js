@@ -7,6 +7,7 @@ const State = {
         // Filters
         query: '',
         personIds: [],
+        albumId: null,
         dateFrom: null,
         dateTo: null,
         mediaType: 'ALL',
@@ -34,6 +35,7 @@ const State = {
         // Cached reference data
         people: [],
         suggestions: null,
+        albums: [],
     },
 
     _subscribers: [],
@@ -69,6 +71,7 @@ const State = {
 
         if (s.query) params.set('q', s.query);
         if (s.personIds.length > 0) params.set('people', s.personIds.join(','));
+        if (s.albumId) params.set('album', s.albumId);
         if (s.dateFrom) params.set('from', s.dateFrom);
         if (s.dateTo) params.set('to', s.dateTo);
         if (s.mediaType !== 'ALL') params.set('type', s.mediaType);
@@ -96,6 +99,7 @@ const State = {
         if (params.has('people')) {
             updates.personIds = params.get('people').split(',').filter(Boolean);
         }
+        if (params.has('album')) updates.albumId = params.get('album');
         if (params.has('from')) updates.dateFrom = params.get('from');
         if (params.has('to')) updates.dateTo = params.get('to');
         if (params.has('type')) updates.mediaType = params.get('type');
@@ -116,6 +120,7 @@ const State = {
         let count = 0;
         if (s.query) count++;
         if (s.personIds.length > 0) count++;
+        if (s.albumId) count++;
         if (s.dateFrom || s.dateTo) count++;
         if (s.mediaType !== 'ALL') count++;
         if (s.cameraMake) count++;
@@ -128,6 +133,7 @@ const State = {
         this.set({
             query: '',
             personIds: [],
+            albumId: null,
             dateFrom: null,
             dateTo: null,
             mediaType: 'ALL',
@@ -147,6 +153,7 @@ const State = {
         return {
             query: s.query || null,
             personIds: s.personIds.length > 0 ? s.personIds : null,
+            albumId: s.albumId || null,
             takenAfter: s.dateFrom || null,
             takenBefore: s.dateTo || null,
             type: s.mediaType !== 'ALL' ? s.mediaType : null,
