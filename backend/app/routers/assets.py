@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse
 from ..auth import require_token
 from ..deps import get_client, validate_uuid
 from ..proxy import stream_upstream
-from ..schemas import PaginatedResponse
+from ..schemas import ArchivePayload, PaginatedResponse
 from ..scope import album_ids_for_search, ensure_asset_in_scope
 from ..tokens import TokenRecord
 
@@ -165,6 +165,37 @@ async def download_asset(
         )
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail="Asset not found")
+
+
+@router.post("/download/archive")
+async def download_archive(
+    payload: ArchivePayload,
+    client: httpx.AsyncClient = Depends(get_client),
+    token: TokenRecord = Depends(require_token),
+):
+    """Zip download of multiple assets at once, via Immich's own archive endpoint.
+
+    Every asset id is scope-checked before any archive request is made — same
+    fail-closed pattern as the single-asset routes. Unlike /assets/{id}/download,
+    this doesn't exclude videos: the /original route already serves video bytes
+    unrestricted, so blocking them only here wouldn't actually protect anything.
+    """
+    for asset_id in payload.assetIds:
+        await ensure_asset_in_scope(client, asset_id, token)
+
+    try:
+        req = client.build_request(
+            "POST", "/api/download/archive", json={"assetIds": payload.assetIds}
+        )
+        response = await client.send(req, stream=True)
+        response.raise_for_status()
+        return stream_upstream(
+            response,
+            default_media_type="application/zip",
+            headers={"Content-Disposition": 'attachment; filename="photos.zip"'},
+        )
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail="Archive download failed")
 
 
 @router.get("/assets/{asset_id}/video/playback")

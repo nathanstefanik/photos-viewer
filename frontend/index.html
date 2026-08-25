@@ -69,6 +69,11 @@
               </svg>
             </button>
           </div>
+          <button id="select-toggle" class="btn-icon" aria-label="Select photos" aria-pressed="false">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
           <button id="albums-toggle" class="btn-icon" aria-label="Albums">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
@@ -228,6 +233,14 @@
         <button id="retry-btn" class="btn btn-primary">Retry</button>
       </div>
     </main>
+
+    <div class="selection-bar" id="selection-bar" hidden>
+      <span id="selection-count">0 selected</span>
+      <div class="selection-actions">
+        <button id="selection-download" class="btn btn-primary" disabled>Download</button>
+        <button id="selection-cancel" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
 
     <div class="lightbox" id="lightbox" hidden>
       <div class="lightbox-overlay" id="lightbox-overlay"></div>

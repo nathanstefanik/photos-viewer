@@ -15,9 +15,16 @@ const Gallery = {
         retryBtn: null,
         resultCount: null,
         activeFilters: null,
+        selectToggle: null,
+        selectionBar: null,
+        selectionCount: null,
+        selectionDownload: null,
+        selectionCancel: null,
     },
 
     observer: null,
+    selectionMode: false,
+    selectedIds: new Set(),
 
     init() {
         this.elements.gallery = document.getElementById('timeline');
@@ -31,15 +38,102 @@ const Gallery = {
         this.elements.retryBtn = document.getElementById('retry-btn');
         this.elements.resultCount = document.getElementById('result-count');
         this.elements.activeFilters = document.getElementById('active-filters');
+        this.elements.selectToggle = document.getElementById('select-toggle');
+        this.elements.selectionBar = document.getElementById('selection-bar');
+        this.elements.selectionCount = document.getElementById('selection-count');
+        this.elements.selectionDownload = document.getElementById('selection-download');
+        this.elements.selectionCancel = document.getElementById('selection-cancel');
 
         this.elements.loadMoreBtn?.addEventListener('click', () => this.loadMore());
         this.elements.retryBtn?.addEventListener('click', () => this.reload());
+        this.elements.selectToggle?.addEventListener('click', () => this.toggleSelectionMode());
+        this.elements.selectionCancel?.addEventListener('click', () => this.exitSelectionMode());
+        this.elements.selectionDownload?.addEventListener('click', () => this.downloadSelected());
 
         this.setupInfiniteScroll();
 
         State.subscribe((newState, oldState) => {
             this.onStateChange(newState, oldState);
         });
+    },
+
+    // --- Multi-select + bulk download ---
+
+    toggleSelectionMode() {
+        if (this.selectionMode) {
+            this.exitSelectionMode();
+        } else {
+            this.enterSelectionMode();
+        }
+    },
+
+    enterSelectionMode() {
+        this.selectionMode = true;
+        this.selectedIds.clear();
+        this.elements.selectToggle?.setAttribute('aria-pressed', 'true');
+        this.elements.gallery.classList.add('selection-mode');
+        this.updateSelectionBar();
+    },
+
+    exitSelectionMode() {
+        this.selectionMode = false;
+        this.selectedIds.clear();
+        this.elements.selectToggle?.setAttribute('aria-pressed', 'false');
+        this.elements.gallery.classList.remove('selection-mode');
+        this.elements.gallery.querySelectorAll('.gallery-item.selected').forEach((el) => {
+            el.classList.remove('selected');
+        });
+        this.updateSelectionBar();
+    },
+
+    toggleItemSelection(assetId, itemEl) {
+        if (this.selectedIds.has(assetId)) {
+            this.selectedIds.delete(assetId);
+            itemEl.classList.remove('selected');
+        } else {
+            this.selectedIds.add(assetId);
+            itemEl.classList.add('selected');
+        }
+        this.updateSelectionBar();
+    },
+
+    updateSelectionBar() {
+        if (!this.elements.selectionBar) return;
+        const count = this.selectedIds.size;
+        this.elements.selectionBar.hidden = !this.selectionMode;
+        if (this.elements.selectionCount) {
+            this.elements.selectionCount.textContent = count === 1 ? '1 selected' : `${count} selected`;
+        }
+        if (this.elements.selectionDownload) {
+            this.elements.selectionDownload.disabled = count === 0;
+        }
+    },
+
+    async downloadSelected() {
+        if (this.selectedIds.size === 0) return;
+        const assetIds = Array.from(this.selectedIds);
+        const btn = this.elements.selectionDownload;
+        const originalText = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Preparing…';
+        try {
+            const blob = await API.downloadArchive(assetIds);
+            const blobUrl = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = 'photos.zip';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(blobUrl);
+            this.exitSelectionMode();
+        } catch (error) {
+            console.error('Failed to download archive:', error);
+            alert(error.message || 'Download failed. Please try again.');
+            btn.disabled = this.selectedIds.size === 0;
+        } finally {
+            btn.textContent = originalText;
+        }
     },
 
     setupInfiniteScroll() {
@@ -248,6 +342,19 @@ const Gallery = {
         item.setAttribute('data-asset-id', asset.id);
         item.setAttribute('data-index', index);
 
+        if (this.selectedIds.has(asset.id)) {
+            item.classList.add('selected');
+        }
+
+        const checkbox = document.createElement('div');
+        checkbox.className = 'gallery-item-checkbox';
+        checkbox.innerHTML = `
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+        `;
+        item.appendChild(checkbox);
+
         const img = document.createElement('img');
         img.className = 'loading';
         img.alt = asset.originalFileName || 'Photo';
@@ -276,11 +383,21 @@ const Gallery = {
         overlay.textContent = this.formatDate(asset.localDateTime || asset.fileCreatedAt);
         item.appendChild(overlay);
 
-        item.addEventListener('click', () => Lightbox.open(asset, index));
+        item.addEventListener('click', () => {
+            if (this.selectionMode) {
+                this.toggleItemSelection(asset.id, item);
+            } else {
+                Lightbox.open(asset, index);
+            }
+        });
         item.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                Lightbox.open(asset, index);
+                if (this.selectionMode) {
+                    this.toggleItemSelection(asset.id, item);
+                } else {
+                    Lightbox.open(asset, index);
+                }
             }
         });
 

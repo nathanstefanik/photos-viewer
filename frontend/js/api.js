@@ -91,6 +91,14 @@ const API = {
         return `${this.baseUrl}/assets/${assetId}/download`;
     },
 
+    async downloadArchive(assetIds) {
+        return this.request('/download/archive', {
+            method: 'POST',
+            body: JSON.stringify({ assetIds }),
+            blob: true,
+        });
+    },
+
     getVideoPlaybackUrl(assetId) {
         return `${this.baseUrl}/assets/${assetId}/video/playback`;
     },

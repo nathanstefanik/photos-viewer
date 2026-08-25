@@ -75,3 +75,15 @@ class ReactionPayload(IdentityPayload):
 
 class CommentPayload(IdentityPayload):
     body: str = Field(..., min_length=1, max_length=1000)
+
+
+class ArchivePayload(BaseModel):
+    assetIds: List[str] = Field(..., min_length=1, max_length=500)
+
+    @field_validator("assetIds")
+    @classmethod
+    def validate_asset_ids(cls, v):
+        for asset_id in v:
+            if not UUID_PATTERN.match(asset_id):
+                raise ValueError(f"Invalid asset ID: {asset_id}")
+        return v
