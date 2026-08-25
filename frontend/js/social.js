@@ -193,7 +193,7 @@ const Social = {
             btn.className = 'social-person-option';
             btn.innerHTML = `
                 <img src="${API.getPersonThumbnailUrl(person.id)}" alt="">
-                <span>${this.escape(person.name)}</span>
+                <span>${escapeHtml(person.name)}</span>
             `;
             btn.addEventListener('click', () => {
                 this.setIdentity({ displayName: person.name, personId: person.id });
@@ -309,10 +309,10 @@ const Social = {
                 : '';
             item.innerHTML = `
                 <div class="social-comment-header">
-                    <strong>${this.escape(comment.displayName)}</strong>
-                    <span class="social-comment-time">${this.escape(when)}</span>
+                    <strong>${escapeHtml(comment.displayName)}</strong>
+                    <span class="social-comment-time">${escapeHtml(when)}</span>
                 </div>
-                <p class="social-comment-body">${this.escape(comment.body)}</p>
+                <p class="social-comment-body">${escapeHtml(comment.body)}</p>
             `;
             if (comment.mine) {
                 const del = document.createElement('button');
@@ -381,13 +381,6 @@ const Social = {
         }
     },
 
-    escape(value) {
-        return String(value ?? '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    },
 };
 
 window.Social = Social;

@@ -1,5 +1,5 @@
 """
-Simple in-memory cache for Immich Read-Only Display.
+Simple in-memory cache for the photos viewer.
 Caches people list, search suggestions, and other semi-static data.
 """
 

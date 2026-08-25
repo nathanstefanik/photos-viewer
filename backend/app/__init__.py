@@ -1,1 +1,1 @@
-"""Immich Read-Only Display Backend Package."""
+"""Photos viewer backend package."""

@@ -9,3 +9,5 @@ venv
 data
 README.md
 example.env
+backend/tests
+backend/requirements-dev.txt

@@ -1,0 +1,14 @@
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+# Correctness-only (pyflakes + a handful of pycodestyle checks): unused imports,
+# undefined names, syntax issues. Deliberately not the newer expanded rule sets
+# (B/UP/S/SIM/...) — those are style opinions this codebase hasn't opted into yet.
+select = ["E4", "E7", "E9", "F"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
+asyncio_mode = "auto"

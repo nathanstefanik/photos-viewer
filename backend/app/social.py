@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import secrets
 import sqlite3
 import time
 import uuid
@@ -11,8 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-# Unambiguous short suffix for anonymous display names
-_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+from .codes import generate_code
 
 # One emoji grapheme: flags, ZWJ sequences, keycaps, skin tones, VS16
 _EMOJI_RE = re.compile(
@@ -39,8 +37,7 @@ def new_guest_id() -> str:
 
 
 def default_display_name() -> str:
-    suffix = "".join(secrets.choice(_ALPHABET) for _ in range(4))
-    return f"Guest-{suffix}"
+    return f"Guest-{generate_code(4)}"
 
 
 def is_single_emoji(value: str) -> bool:

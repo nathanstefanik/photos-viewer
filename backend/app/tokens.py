@@ -5,15 +5,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import secrets
 import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-# Unambiguous for verbal relay (no 0/O, 1/I/L)
-_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+from .codes import generate_code
+
 _TOKEN_LEN = 6
 
 
@@ -28,10 +27,6 @@ def format_token(raw: str) -> str:
     if len(raw) == _TOKEN_LEN:
         return f"{raw[:3]}-{raw[3:]}"
     return raw
-
-
-def _generate_code(length: int = _TOKEN_LEN) -> str:
-    return "".join(secrets.choice(_ALPHABET) for _ in range(length))
 
 
 def hash_token(raw: str, secret: str) -> str:
@@ -121,10 +116,10 @@ class TokenStore:
         expires_at: Optional[float] = None,
     ) -> tuple[TokenRecord, str]:
         """Create a token. Returns (record, raw_secret). Raw is shown once."""
-        token_id = _generate_code(8)
+        token_id = generate_code(8)
         album_json = json.dumps(album_ids) if album_ids is not None else None
         for _ in range(32):
-            raw = _generate_code(_TOKEN_LEN)
+            raw = generate_code(_TOKEN_LEN)
             try:
                 now = time.time()
                 with self._connect() as conn:

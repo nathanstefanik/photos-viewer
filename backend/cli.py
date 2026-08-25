@@ -5,18 +5,13 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 import time
 from datetime import datetime, timezone
 
 from app.config import settings
 from app.tokens import TokenStore, format_token, normalize_token
-
-_UUID = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    re.IGNORECASE,
-)
+from app.validation import UUID_PATTERN as _UUID
 
 
 def _fmt_ts(ts: float | None) -> str:

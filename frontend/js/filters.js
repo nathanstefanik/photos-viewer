@@ -300,7 +300,7 @@ const Filters = {
             const label = person.name?.trim() || 'Unnamed person';
             btn.innerHTML = `
                 <img src="${API.getPersonThumbnailUrl(person.id)}" alt="" onerror="this.style.display='none'">
-                <span>${this.escapeHtml(label)}</span>
+                <span>${escapeHtml(label)}</span>
             `;
             btn.addEventListener('mousedown', (e) => e.preventDefault());
             btn.addEventListener('click', () => this.selectSearchPerson(person.id));
@@ -393,8 +393,8 @@ const Filters = {
             chip.setAttribute('data-person-id', id);
             chip.innerHTML = `
                 <img src="${API.getPersonThumbnailUrl(id)}" alt="" onerror="this.style.display='none'">
-                <span>${this.escapeHtml(label)}</span>
-                <button type="button" class="search-person-chip-remove" aria-label="Remove ${this.escapeHtml(label)}">
+                <span>${escapeHtml(label)}</span>
+                <button type="button" class="search-person-chip-remove" aria-label="Remove ${escapeHtml(label)}">
                     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
                         <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -412,14 +412,6 @@ const Filters = {
         this.elements.searchInput.placeholder = hasPeople
             ? 'Add a person or search meaning…'
             : 'Search meaning, or type a name to pick a person';
-    },
-
-    escapeHtml(value) {
-        return String(value)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
     },
 
     clearAll() {
