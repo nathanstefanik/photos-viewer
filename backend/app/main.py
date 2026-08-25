@@ -22,6 +22,7 @@ from .config import settings
 from .deps import STATIC_DIR
 from .routers import assets, pages, people, search
 from .routers import social as social_router
+from .security_headers import install_security_headers
 from .social import SocialStore
 from .tokens import TokenStore
 
@@ -86,6 +87,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
+
+install_security_headers(app)
 
 
 @app.middleware("http")

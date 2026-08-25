@@ -516,6 +516,11 @@ video {
   padding-top: 1rem;
 }
 
+.filter-section--first {
+  border-top: none;
+  padding-top: 0;
+}
+
 .input-group {
   display: flex;
   flex-direction: column;

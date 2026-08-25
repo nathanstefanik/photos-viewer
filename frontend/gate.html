@@ -6,79 +6,8 @@
   <title>Photos</title>
   <link rel="icon" href="favicon-32.png" type="image/png">
   <link rel="stylesheet" href="css/styles.css">
-  <style>
-    body {
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 1.5rem;
-    }
-    .gate {
-      max-width: 22rem;
-      width: 100%;
-      text-align: center;
-    }
-    .gate .logo-mark {
-      width: 3rem;
-      height: 3rem;
-      margin: 0 auto 1rem;
-    }
-    .gate h1 {
-      font-size: 1.5rem;
-      font-weight: 600;
-      color: var(--color-primary);
-      margin: 0 0 0.75rem;
-    }
-    .gate p {
-      margin: 0 0 1.25rem;
-      color: var(--color-text-muted);
-      line-height: 1.5;
-    }
-    .gate form {
-      display: flex;
-      gap: 0.5rem;
-    }
-    .gate input {
-      flex: 1;
-      background: var(--color-surface);
-      border: 1px solid var(--color-border);
-      border-radius: var(--radius-sm);
-      padding: 0.75rem 0.9rem;
-      color: var(--color-text);
-      font: inherit;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      text-align: center;
-    }
-    .gate input:focus {
-      outline: none;
-      border-color: var(--color-primary);
-      box-shadow: 0 0 0 1px var(--color-primary);
-    }
-    .gate button[type="submit"] {
-      background: var(--color-primary);
-      color: var(--color-primary-fg);
-      border: none;
-      border-radius: var(--radius-sm);
-      padding: 0 1.1rem;
-      font: inherit;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .gate .err {
-      color: #f67d7d;
-      margin-top: 1rem;
-    }
-  </style>
-  <script>
-    try {
-      const preference = localStorage.getItem('theme');
-      const prefersDark = matchMedia('(prefers-color-scheme: dark)').matches;
-      if (preference === 'light' || (!preference && !prefersDark)) {
-        document.documentElement.classList.remove('dark');
-      }
-    } catch {}
-  </script>
+  <link rel="stylesheet" href="css/gate.css">
+  <script src="js/theme-init.js"></script>
 </head>
 <body>
   <main class="gate">
@@ -91,19 +20,6 @@
     </form>
     <p class="err" id="err" hidden>That code is invalid or has been revoked.</p>
   </main>
-  <script>
-    if (new URLSearchParams(location.search).get('error') === 'invalid') {
-      document.getElementById('err').hidden = false;
-    }
-    document.getElementById('form').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const code = document.getElementById('code').value.replace(/[^a-zA-Z0-9]/g, '');
-      if (code.length !== 6) {
-        document.getElementById('err').hidden = false;
-        return;
-      }
-      location.href = '/t/' + code;
-    });
-  </script>
+  <script src="js/gate.js"></script>
 </body>
 </html>

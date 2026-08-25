@@ -298,10 +298,16 @@ const Filters = {
             btn.setAttribute('role', 'option');
             btn.setAttribute('aria-selected', 'false');
             const label = person.name?.trim() || 'Unnamed person';
-            btn.innerHTML = `
-                <img src="${API.getPersonThumbnailUrl(person.id)}" alt="" onerror="this.style.display='none'">
-                <span>${escapeHtml(label)}</span>
-            `;
+            const img = document.createElement('img');
+            img.src = API.getPersonThumbnailUrl(person.id);
+            img.alt = '';
+            img.onerror = () => { img.style.display = 'none'; };
+            btn.appendChild(img);
+
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = label;
+            btn.appendChild(nameSpan);
+
             btn.addEventListener('mousedown', (e) => e.preventDefault());
             btn.addEventListener('click', () => this.selectSearchPerson(person.id));
             btn.addEventListener('mouseenter', () => this.setPersonSuggestHighlight(index));
@@ -391,8 +397,14 @@ const Filters = {
             const chip = document.createElement('span');
             chip.className = 'search-person-chip';
             chip.setAttribute('data-person-id', id);
-            chip.innerHTML = `
-                <img src="${API.getPersonThumbnailUrl(id)}" alt="" onerror="this.style.display='none'">
+
+            const img = document.createElement('img');
+            img.src = API.getPersonThumbnailUrl(id);
+            img.alt = '';
+            img.onerror = () => { img.style.display = 'none'; };
+            chip.appendChild(img);
+
+            chip.insertAdjacentHTML('beforeend', `
                 <span>${escapeHtml(label)}</span>
                 <button type="button" class="search-person-chip-remove" aria-label="Remove ${escapeHtml(label)}">
                     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -400,7 +412,7 @@ const Filters = {
                         <line x1="6" y1="6" x2="18" y2="18"></line>
                     </svg>
                 </button>
-            `;
+            `);
             chip.querySelector('.search-person-chip-remove').addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.removeSearchPerson(id);
@@ -545,10 +557,15 @@ const Filters = {
             }
 
             const label = person.name?.trim() || 'Unnamed person';
-            chip.innerHTML = `
-                <img src="${API.getPersonThumbnailUrl(person.id)}" alt="${label}" onerror="this.style.display='none'">
-                <span>${label}</span>
-            `;
+            const img = document.createElement('img');
+            img.src = API.getPersonThumbnailUrl(person.id);
+            img.alt = label;
+            img.onerror = () => { img.style.display = 'none'; };
+            chip.appendChild(img);
+
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = label;
+            chip.appendChild(nameSpan);
 
             chip.addEventListener('click', () => this.togglePerson(person.id));
             this.elements.peopleChips.appendChild(chip);

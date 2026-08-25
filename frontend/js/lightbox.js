@@ -325,10 +325,16 @@ const Lightbox = {
             asset.people.forEach((person) => {
                 const chip = document.createElement('span');
                 chip.className = 'person-chip';
-                chip.innerHTML = `
-                    <img src="${API.getPersonThumbnailUrl(person.id)}" alt="${person.name}">
-                    <span>${person.name}</span>
-                `;
+
+                const img = document.createElement('img');
+                img.src = API.getPersonThumbnailUrl(person.id);
+                img.alt = person.name || '';
+                chip.appendChild(img);
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = person.name || '';
+                chip.appendChild(nameSpan);
+
                 chip.addEventListener('click', () => {
                     this.close();
                     const currentPersonIds = State.getProperty('personIds');

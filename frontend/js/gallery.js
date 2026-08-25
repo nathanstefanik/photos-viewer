@@ -368,18 +368,22 @@ const Gallery = {
         filters.forEach((filter) => {
             const tag = document.createElement('span');
             tag.className = 'filter-tag';
-            tag.innerHTML = `
-                ${filter.label}
-                <button aria-label="Remove filter" data-filter="${filter.key}" data-value="${filter.value || ''}">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                </button>
+            tag.appendChild(document.createTextNode(filter.label));
+
+            const button = document.createElement('button');
+            button.setAttribute('aria-label', 'Remove filter');
+            button.setAttribute('data-filter', filter.key);
+            button.setAttribute('data-value', filter.value || '');
+            button.innerHTML = `
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
             `;
-            tag.querySelector('button').addEventListener('click', () => {
+            button.addEventListener('click', () => {
                 this.removeFilter(filter.key, filter.value);
             });
+            tag.appendChild(button);
             container.appendChild(tag);
         });
     },

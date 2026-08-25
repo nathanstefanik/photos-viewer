@@ -6,19 +6,7 @@
   <title>Photos</title>
   <link rel="icon" href="favicon-32.png" type="image/png">
   <link rel="stylesheet" href="css/styles.css">
-  <script>
-    try {
-      const preference = localStorage.getItem('theme');
-      const prefersDark = matchMedia('(prefers-color-scheme: dark)').matches;
-      if (preference === 'light' || (!preference && !prefersDark)) {
-        document.documentElement.classList.remove('dark');
-      }
-      const view = localStorage.getItem('viewMode');
-      if (view === 'dense' || view === 'comfortable' || view === 'large') {
-        document.documentElement.dataset.view = view;
-      }
-    } catch {}
-  </script>
+  <script src="js/theme-init.js"></script>
 </head>
 <body>
   <div id="app">
@@ -108,7 +96,7 @@
           <button id="clear-filters" class="btn btn-text">Clear all</button>
         </div>
 
-        <div class="filter-section" style="border-top:none;padding-top:0">
+        <div class="filter-section filter-section--first">
           <h3 class="filter-title">People</h3>
           <div class="input-group">
             <label for="people-search" class="visually-hidden">Search people</label>
