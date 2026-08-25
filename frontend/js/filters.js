@@ -404,19 +404,25 @@ const Filters = {
             img.onerror = () => { img.style.display = 'none'; };
             chip.appendChild(img);
 
-            chip.insertAdjacentHTML('beforeend', `
-                <span>${escapeHtml(label)}</span>
-                <button type="button" class="search-person-chip-remove" aria-label="Remove ${escapeHtml(label)}">
-                    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                </button>
-            `);
-            chip.querySelector('.search-person-chip-remove').addEventListener('click', (e) => {
+            const nameSpan = document.createElement('span');
+            nameSpan.textContent = label;
+            chip.appendChild(nameSpan);
+
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'search-person-chip-remove';
+            remove.setAttribute('aria-label', `Remove ${label}`);
+            remove.innerHTML = `
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            `;
+            remove.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.removeSearchPerson(id);
             });
+            chip.appendChild(remove);
             container.appendChild(chip);
         });
 

@@ -31,22 +31,18 @@ async def search_assets(
     Filter-only → metadata.
     """
     search_payload: dict = {"page": filters.page, "size": filters.size}
-    if filters.personIds:
-        search_payload["personIds"] = filters.personIds
-    if filters.make:
-        search_payload["make"] = filters.make
-    if filters.model:
-        search_payload["model"] = filters.model
-    if filters.country:
-        search_payload["country"] = filters.country
-    if filters.city:
-        search_payload["city"] = filters.city
-    if filters.state:
-        search_payload["state"] = filters.state
-    if filters.takenAfter:
-        search_payload["takenAfter"] = filters.takenAfter
-    if filters.takenBefore:
-        search_payload["takenBefore"] = filters.takenBefore
+    for key, value in (
+        ("personIds", filters.personIds),
+        ("make", filters.make),
+        ("model", filters.model),
+        ("country", filters.country),
+        ("city", filters.city),
+        ("state", filters.state),
+        ("takenAfter", filters.takenAfter),
+        ("takenBefore", filters.takenBefore),
+    ):
+        if value:
+            search_payload[key] = value
     if filters.type and filters.type != "ALL":
         search_payload["type"] = filters.type
 

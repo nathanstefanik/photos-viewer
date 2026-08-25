@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -25,6 +25,13 @@ router = APIRouter()
 logger = logging.getLogger("photos_viewer.access")
 
 
+def _static_file(name: str, *, missing: str | None = None) -> FileResponse:
+    path = STATIC_DIR / name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=missing)
+    return FileResponse(path)
+
+
 @router.get("/api/health")
 async def health_check(client: httpx.AsyncClient = Depends(get_client)):
     try:
@@ -36,7 +43,7 @@ async def health_check(client: httpx.AsyncClient = Depends(get_client)):
     return {
         "status": "healthy",
         "immich": immich_status,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -81,39 +88,24 @@ async def redeem_token(raw_token: str, request: Request):
 
 @router.get("/gate")
 async def gate_page():
-    gate = STATIC_DIR / "gate.html"
-    if not gate.exists():
-        raise HTTPException(status_code=404, detail="gate page missing")
-    return FileResponse(gate)
+    return _static_file("gate.html", missing="gate page missing")
 
 
 @router.get("/")
 async def index(_auth: str = Depends(require_session)):
-    index_path = STATIC_DIR / "index.html"
-    if not index_path.exists():
-        raise HTTPException(status_code=404, detail="frontend missing")
-    return FileResponse(index_path)
+    return _static_file("index.html", missing="frontend missing")
 
 
 @router.get("/immich-logo.svg")
 async def logo():
-    path = STATIC_DIR / "immich-logo.svg"
-    if not path.exists():
-        raise HTTPException(status_code=404)
-    return FileResponse(path)
+    return _static_file("immich-logo.svg")
 
 
 @router.get("/favicon.ico")
 async def favicon_ico():
-    path = STATIC_DIR / "favicon.ico"
-    if not path.exists():
-        raise HTTPException(status_code=404)
-    return FileResponse(path)
+    return _static_file("favicon.ico")
 
 
 @router.get("/favicon-32.png")
 async def favicon_png():
-    path = STATIC_DIR / "favicon-32.png"
-    if not path.exists():
-        raise HTTPException(status_code=404)
-    return FileResponse(path)
+    return _static_file("favicon-32.png")
