@@ -20,9 +20,26 @@ const App = {
         Filters.init();
         Albums.init();
 
+        const hadUrlParams = window.location.search.length > 0;
         State.loadFromURL();
+        if (!hadUrlParams) {
+            await this.applyDefaultView();
+        }
+
         await this.checkHealth();
         await Gallery.load();
+    },
+
+    /** On a fresh visit (no URL filters), default to the code's "photos of you" if set. */
+    async applyDefaultView() {
+        try {
+            const session = await API.getSession();
+            if (session.personIds && session.personIds.length > 0) {
+                State.set({ personIds: session.personIds });
+            }
+        } catch (error) {
+            console.error('Failed to load session info:', error);
+        }
     },
 
     /** Thumbnail density: dense | comfortable | large */

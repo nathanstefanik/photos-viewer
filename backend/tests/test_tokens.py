@@ -80,6 +80,53 @@ def test_album_scope_roundtrip(store):
     assert not updated.is_scoped
 
 
+def test_person_scope_roundtrip(store):
+    record, _raw = store.issue("friend", person_ids=["11111111-1111-1111-1111-111111111111"])
+    assert record.person_ids == ["11111111-1111-1111-1111-111111111111"]
+    # person_ids is a default-view hint, not an access restriction
+    assert not record.is_scoped
+
+    assert store.set_person_scope(record.id, ["22222222-2222-2222-2222-222222222222"])
+    updated = store.get(record.id)
+    assert updated.person_ids == ["22222222-2222-2222-2222-222222222222"]
+
+    assert store.set_person_scope(record.id, None)
+    assert store.get(record.id).person_ids is None
+
+
+def test_person_ids_default_none(store):
+    record, _raw = store.issue("friend")
+    assert record.person_ids is None
+
+
+def test_migrates_pre_person_ids_schema(tmp_path):
+    """Rows created before the person_ids column existed must still open cleanly."""
+    import sqlite3
+
+    db_path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        """
+        CREATE TABLE tokens (
+            id TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            created_at REAL NOT NULL,
+            last_used_at REAL,
+            revoked_at REAL,
+            expires_at REAL,
+            album_ids TEXT
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    migrated_store = TokenStore(str(db_path), secret="unit-test-secret")
+    record, raw = migrated_store.issue("friend", person_ids=["33333333-3333-3333-3333-333333333333"])
+    assert migrated_store.lookup_raw(raw).person_ids == ["33333333-3333-3333-3333-333333333333"]
+
+
 def test_touch_updates_last_used(store):
     record, _raw = store.issue("friend")
     assert store.get(record.id).last_used_at is None

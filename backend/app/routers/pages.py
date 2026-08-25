@@ -14,12 +14,13 @@ from ..auth import (
     client_ip,
     make_session_value,
     require_session,
+    require_token,
     session_cookie_max_age,
 )
 from ..config import settings
 from ..deps import STATIC_DIR, get_client
 from ..ratelimit import redeem_allowed
-from ..tokens import TokenStore, normalize_token
+from ..tokens import TokenRecord, TokenStore, normalize_token
 
 router = APIRouter()
 logger = logging.getLogger("photos_viewer.access")
@@ -37,6 +38,19 @@ async def health_check(client: httpx.AsyncClient = Depends(get_client)):
         "status": "healthy",
         "immich": immich_status,
         "timestamp": datetime.utcnow().isoformat(),
+    }
+
+
+@router.get("/api/session")
+async def get_session(token: TokenRecord = Depends(require_token)):
+    """Session-scoped info the frontend uses to personalize the default view.
+
+    personIds is a default filter hint, not an access restriction — the guest
+    can still clear it and browse everything the token is otherwise allowed to see.
+    """
+    return {
+        "personIds": token.person_ids or [],
+        "albumScoped": token.is_scoped,
     }
 
 

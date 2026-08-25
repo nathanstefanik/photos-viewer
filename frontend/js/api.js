@@ -73,6 +73,11 @@ const API = {
         return this.get('/health');
     },
 
+    // Session
+    async getSession() {
+        return this.get('/session');
+    },
+
     // Assets
     async getAsset(assetId) {
         return this.get(`/assets/${assetId}`);

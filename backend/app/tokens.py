@@ -53,7 +53,8 @@ class TokenRecord:
     last_used_at: Optional[float]
     revoked_at: Optional[float]
     expires_at: Optional[float]
-    album_ids: Optional[list[str]]  # None = full library; list = scoped
+    album_ids: Optional[list[str]]  # None = full library; list = scoped (restricts access)
+    person_ids: Optional[list[str]] = None  # default "photos of you" view; does not restrict access
 
     @property
     def revoked(self) -> bool:
@@ -107,6 +108,8 @@ class TokenStore:
                 conn.execute("ALTER TABLE tokens ADD COLUMN expires_at REAL")
             if "album_ids" not in cols:
                 conn.execute("ALTER TABLE tokens ADD COLUMN album_ids TEXT")
+            if "person_ids" not in cols:
+                conn.execute("ALTER TABLE tokens ADD COLUMN person_ids TEXT")
             conn.commit()
 
     def issue(
@@ -114,10 +117,12 @@ class TokenStore:
         label: str,
         album_ids: Optional[list[str]] = None,
         expires_at: Optional[float] = None,
+        person_ids: Optional[list[str]] = None,
     ) -> tuple[TokenRecord, str]:
         """Create a token. Returns (record, raw_secret). Raw is shown once."""
         token_id = generate_code(8)
         album_json = json.dumps(album_ids) if album_ids is not None else None
+        person_json = json.dumps(person_ids) if person_ids is not None else None
         for _ in range(32):
             raw = generate_code(_TOKEN_LEN)
             try:
@@ -127,9 +132,9 @@ class TokenStore:
                         """
                         INSERT INTO tokens (
                             id, label, token_hash, created_at, last_used_at,
-                            revoked_at, expires_at, album_ids
+                            revoked_at, expires_at, album_ids, person_ids
                         )
-                        VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)
+                        VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?)
                         """,
                         (
                             token_id,
@@ -138,6 +143,7 @@ class TokenStore:
                             now,
                             expires_at,
                             album_json,
+                            person_json,
                         ),
                     )
                     conn.commit()
@@ -149,6 +155,7 @@ class TokenStore:
                     revoked_at=None,
                     expires_at=expires_at,
                     album_ids=list(album_ids) if album_ids is not None else None,
+                    person_ids=list(person_ids) if person_ids is not None else None,
                 )
                 return record, raw
             except sqlite3.IntegrityError:
@@ -227,6 +234,21 @@ class TokenStore:
             conn.commit()
             return cur.rowcount > 0
 
+    def set_person_scope(self, token_id: str, person_ids: Optional[list[str]]) -> bool:
+        """Set the token's default "photos of you" people. Does not restrict access —
+        pass None/empty to clear it back to no default."""
+        person_json = json.dumps(person_ids) if person_ids else None
+        with self._connect() as conn:
+            cur = conn.execute(
+                """
+                UPDATE tokens SET person_ids = ?
+                WHERE id = ? AND revoked_at IS NULL
+                """,
+                (person_json, token_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
     def list(self) -> list[TokenRecord]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -236,16 +258,18 @@ class TokenStore:
 
     @staticmethod
     def _row_to_record(row: sqlite3.Row) -> TokenRecord:
-        album_raw = row["album_ids"] if "album_ids" in row.keys() else None
-        album_ids = None
-        if album_raw:
-            album_ids = json.loads(album_raw)
+        keys = row.keys()
+        album_raw = row["album_ids"] if "album_ids" in keys else None
+        album_ids = json.loads(album_raw) if album_raw else None
+        person_raw = row["person_ids"] if "person_ids" in keys else None
+        person_ids = json.loads(person_raw) if person_raw else None
         return TokenRecord(
             id=row["id"],
             label=row["label"],
             created_at=row["created_at"],
             last_used_at=row["last_used_at"],
             revoked_at=row["revoked_at"],
-            expires_at=row["expires_at"] if "expires_at" in row.keys() else None,
+            expires_at=row["expires_at"] if "expires_at" in keys else None,
             album_ids=album_ids,
+            person_ids=person_ids,
         )

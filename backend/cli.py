@@ -40,6 +40,14 @@ def main() -> int:
         metavar="N",
         help="Code expires after N days (default: never)",
     )
+    issue.add_argument(
+        "--person",
+        action="append",
+        dest="persons",
+        metavar="UUID",
+        help="Immich person UUID (repeatable). Default view is 'photos of you'; "
+        "doesn't restrict access, just what the guest sees first.",
+    )
 
     revoke = sub.add_parser("revoke", help="Revoke a token by id")
     revoke.add_argument("token_id")
@@ -80,6 +88,15 @@ def main() -> int:
                     return 1
                 album_ids.append(aid.lower())
 
+        person_ids = None
+        if args.persons:
+            person_ids = []
+            for pid in args.persons:
+                if not _UUID.match(pid):
+                    print(f"invalid person UUID: {pid}", file=sys.stderr)
+                    return 1
+                person_ids.append(pid.lower())
+
         expires_at = None
         if args.expires_days is not None:
             if args.expires_days <= 0:
@@ -87,7 +104,9 @@ def main() -> int:
                 return 1
             expires_at = time.time() + args.expires_days * 86400
 
-        record, raw = store.issue(args.label, album_ids=album_ids, expires_at=expires_at)
+        record, raw = store.issue(
+            args.label, album_ids=album_ids, expires_at=expires_at, person_ids=person_ids
+        )
         code = format_token(raw)
         link = f"{base}/t/{normalize_token(raw)}"
         print(f"id:      {record.id}")
@@ -98,6 +117,8 @@ def main() -> int:
             print(f"albums:  {', '.join(record.album_ids)}")
         else:
             print("albums:  (full library)")
+        if record.person_ids:
+            print(f"people:  {', '.join(record.person_ids)} (default view, not restricted to)")
         print(f"expires: {_fmt_ts(record.expires_at)}")
         print("(say the code out loud, or send the link)")
         return 0
