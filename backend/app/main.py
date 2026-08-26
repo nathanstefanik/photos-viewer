@@ -20,6 +20,7 @@ from .auth import current_token_id, unauthenticated_response
 from .cache import cache_manager
 from .config import settings
 from .deps import STATIC_DIR
+from .routers import activity as activity_router
 from .routers import assets, pages, people, search
 from .routers import social as social_router
 from .security_headers import install_security_headers
@@ -115,6 +116,7 @@ app.include_router(people.router)
 app.include_router(search.router)
 app.include_router(assets.router)
 app.include_router(social_router.router)
+app.include_router(activity_router.router)
 
 if (STATIC_DIR / "css").is_dir():
     app.mount("/css", StaticFiles(directory=str(STATIC_DIR / "css")), name="css")

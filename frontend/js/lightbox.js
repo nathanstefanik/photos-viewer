@@ -140,6 +140,7 @@ const Lightbox = {
     },
 
     async next() {
+        if (this.currentIndex < 0) return;
         const assets = State.getProperty('assets');
 
         if (this.currentIndex >= assets.length - 1) {
@@ -277,12 +278,13 @@ const Lightbox = {
 
     updateNavigation() {
         const assets = State.getProperty('assets');
+        const detached = this.currentIndex < 0;
 
-        this.elements.prev.disabled = this.currentIndex <= 0;
-        this.elements.prev.style.opacity = this.currentIndex <= 0 ? '0.3' : '1';
+        this.elements.prev.disabled = detached || this.currentIndex <= 0;
+        this.elements.prev.style.opacity = this.elements.prev.disabled ? '0.3' : '1';
 
         this.elements.next.disabled =
-            this.currentIndex >= assets.length - 1 && !State.getProperty('hasMore');
+            detached || (this.currentIndex >= assets.length - 1 && !State.getProperty('hasMore'));
         this.elements.next.style.opacity = this.elements.next.disabled ? '0.3' : '1';
     },
 

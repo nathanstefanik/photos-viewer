@@ -68,17 +68,23 @@ const Filters = {
         this.elements.filterToggle.addEventListener('click', () => this.togglePanel());
 
         // Backdrop click / Escape dismisses the panel (lightbox owns Escape while open)
-        this.elements.filterBackdrop?.addEventListener('click', () => this.hidePanel());
+        this.elements.filterBackdrop?.addEventListener('click', () => {
+            this.hidePanel();
+            window.Activity?.hide();
+        });
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
             if (this.isPersonSuggestOpen()) {
                 this.hidePersonSuggestions();
                 return;
             }
-            if (this.elements.filterPanel.hidden) return;
             const lightbox = document.getElementById('lightbox');
             if (lightbox && !lightbox.hidden) return;
-            this.hidePanel();
+            if (!this.elements.filterPanel.hidden) {
+                this.hidePanel();
+                return;
+            }
+            window.Activity?.hide();
         });
 
         document.addEventListener('mousedown', (e) => {
@@ -159,6 +165,7 @@ const Filters = {
     },
 
     showPanel() {
+        window.Activity?.hide();
         this.elements.filterPanel.hidden = false;
         if (this.elements.filterBackdrop) {
             this.elements.filterBackdrop.hidden = false;
@@ -167,7 +174,7 @@ const Filters = {
 
     hidePanel() {
         this.elements.filterPanel.hidden = true;
-        if (this.elements.filterBackdrop) {
+        if (this.elements.filterBackdrop && !window.Activity?.isOpen()) {
             this.elements.filterBackdrop.hidden = true;
         }
     },

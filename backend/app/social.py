@@ -64,6 +64,17 @@ class ReactionGroup:
 
 
 @dataclass
+class ReactionRecord:
+    id: str
+    asset_id: str
+    guest_id: str
+    emoji: str
+    display_name: str
+    person_id: Optional[str]
+    created_at: float
+
+
+@dataclass
 class CommentRecord:
     id: str
     asset_id: str
@@ -115,6 +126,10 @@ class SocialStore:
                 );
                 CREATE INDEX IF NOT EXISTS idx_comments_asset
                     ON comments(asset_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_comments_created
+                    ON comments(created_at);
+                CREATE INDEX IF NOT EXISTS idx_reactions_created
+                    ON reactions(created_at);
                 """
             )
             conn.commit()
@@ -258,3 +273,51 @@ class SocialStore:
             )
             conn.commit()
             return cur.rowcount > 0
+
+    def list_recent_comments(self, limit: int) -> list[CommentRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, asset_id, guest_id, display_name, person_id, body, created_at
+                FROM comments
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            CommentRecord(
+                id=row["id"],
+                asset_id=row["asset_id"],
+                guest_id=row["guest_id"],
+                display_name=row["display_name"],
+                person_id=row["person_id"],
+                body=row["body"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+    def list_recent_reactions(self, limit: int) -> list[ReactionRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, asset_id, guest_id, emoji, display_name, person_id, created_at
+                FROM reactions
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            ReactionRecord(
+                id=row["id"],
+                asset_id=row["asset_id"],
+                guest_id=row["guest_id"],
+                emoji=row["emoji"],
+                display_name=row["display_name"],
+                person_id=row["person_id"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]

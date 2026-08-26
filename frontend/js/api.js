@@ -107,6 +107,10 @@ const API = {
         return this.delete(`/comments/${commentId}`);
     },
 
+    async getActivity(limit = 50) {
+        return this.get('/activity', { limit });
+    },
+
     // Search
     async search(filters) {
         return this.post('/search', filters);
