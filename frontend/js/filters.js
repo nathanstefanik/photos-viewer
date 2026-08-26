@@ -5,6 +5,7 @@
 const Filters = {
     elements: {
         filterPanel: null,
+        filterClose: null,
         filterBackdrop: null,
         filterToggle: null,
         filterBadge: null,
@@ -25,6 +26,8 @@ const Filters = {
         searchPersonSuggest: null,
     },
 
+    lastFocused: null,
+
     searchDebounce: null,
     peopleList: [],
     // Cap unselected chips when collapsed; selected chips always stay visible
@@ -35,6 +38,7 @@ const Filters = {
 
     init() {
         this.elements.filterPanel = document.getElementById('filter-panel');
+        this.elements.filterClose = document.getElementById('filter-close');
         this.elements.filterBackdrop = document.getElementById('filter-backdrop');
         this.elements.filterToggle = document.getElementById('filter-toggle');
         this.elements.filterBadge = document.getElementById('filter-badge');
@@ -66,6 +70,7 @@ const Filters = {
 
     setupEventListeners() {
         this.elements.filterToggle.addEventListener('click', () => this.togglePanel());
+        this.elements.filterClose?.addEventListener('click', () => this.hidePanel());
 
         // Backdrop click / Escape dismisses the panel (lightbox owns Escape while open)
         this.elements.filterBackdrop?.addEventListener('click', () => {
@@ -165,17 +170,31 @@ const Filters = {
     },
 
     showPanel() {
+        // Capture focus before closing the other drawer, which would otherwise
+        // steal document.activeElement out from under us.
+        this.lastFocused = document.activeElement;
         window.Activity?.hide();
         this.elements.filterPanel.hidden = false;
         if (this.elements.filterBackdrop) {
             this.elements.filterBackdrop.hidden = false;
         }
+        // Move focus into the panel so keyboard/screen-reader users land on
+        // the close button rather than whatever the drawer now covers.
+        (this.elements.filterClose || this.elements.filterPanel).focus();
     },
 
     hidePanel() {
+        if (this.elements.filterPanel.hidden) return;
         this.elements.filterPanel.hidden = true;
         if (this.elements.filterBackdrop && !window.Activity?.isOpen()) {
             this.elements.filterBackdrop.hidden = true;
+        }
+        const restoreFocus = this.lastFocused;
+        this.lastFocused = null;
+        if (restoreFocus && document.body.contains(restoreFocus)) {
+            restoreFocus.focus();
+        } else {
+            this.elements.filterToggle?.focus();
         }
     },
 

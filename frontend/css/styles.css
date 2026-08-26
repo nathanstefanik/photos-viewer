@@ -466,42 +466,66 @@ video {
   display: none !important;
 }
 
-.filter-panel {
-  position: fixed;
-  top: var(--navbar-height);
-  right: 0;
-  bottom: 0;
-  width: min(22rem, 100vw);
-  z-index: var(--z-sidebar);
-  background: var(--color-surface);
-  border-left: 1px solid var(--color-border);
-  overflow: auto;
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
-}
-
-.filter-panel[hidden] {
-  display: none !important;
-}
-
+.filter-panel,
 .activity-panel {
   position: fixed;
   top: var(--navbar-height);
   right: 0;
   bottom: 0;
-  width: min(28rem, 100vw);
   z-index: var(--z-sidebar);
   background: var(--color-surface);
   border-left: 1px solid var(--color-border);
-  overflow: auto;
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
 }
 
+.filter-panel {
+  width: min(22rem, 100vw);
+}
+
+.activity-panel {
+  width: min(28rem, 100vw);
+}
+
+.filter-panel[hidden],
 .activity-panel[hidden] {
   display: none !important;
 }
 
+/* Header stays put (with a reachable close button) while the body below scrolls;
+   safe-area padding keeps it clear of the iPhone status bar/notch, since on
+   narrow screens the panel starts at the very top of the viewport (see the
+   --navbar-height override in the mobile media query). */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  padding: 1rem 1.25rem;
+  padding-top: calc(1rem + env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--color-border);
+}
+
+.panel-header h2 {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.panel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
 .activity-panel-content {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 1.25rem;
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -584,21 +608,15 @@ video {
 }
 
 .filter-panel-content {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   padding: 1.25rem;
+  padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-}
-
-.filter-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.filter-header h2 {
-  font-size: 1.1rem;
-  font-weight: 600;
 }
 
 .filter-title {

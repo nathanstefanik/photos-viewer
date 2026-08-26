@@ -2,7 +2,7 @@
 <html lang="en" class="dark" data-view="comfortable">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
   <title>Photos</title>
   <link rel="icon" href="favicon-32.png" type="image/png">
   <link rel="stylesheet" href="css/styles.css">
@@ -69,17 +69,17 @@
               </svg>
             </button>
           </div>
-          <button id="filter-toggle" class="btn-icon" aria-label="Filters">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
-            </svg>
-            <span class="filter-badge" id="filter-badge" hidden>0</span>
-          </button>
           <button id="activity-toggle" class="btn-icon" aria-label="Activity" aria-expanded="false" title="Activity">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="10"></circle>
               <polyline points="12 6 12 12 16 14"></polyline>
             </svg>
+          </button>
+          <button id="filter-toggle" class="btn-icon" aria-label="Filters">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon>
+            </svg>
+            <span class="filter-badge" id="filter-badge" hidden>0</span>
           </button>
           <button id="theme-toggle" class="btn-icon" aria-label="Toggle theme">
             <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -95,13 +95,20 @@
     </header>
 
     <div class="filter-backdrop" id="filter-backdrop" hidden></div>
-    <aside class="filter-panel" id="filter-panel" hidden>
-      <div class="filter-panel-content">
-        <div class="filter-header">
-          <h2>Filters</h2>
+    <aside class="filter-panel" id="filter-panel" hidden role="dialog" aria-modal="true" aria-labelledby="filter-panel-title">
+      <div class="panel-header">
+        <h2 id="filter-panel-title">Filters</h2>
+        <div class="panel-header-actions">
           <button id="clear-filters" class="btn btn-text">Clear all</button>
+          <button type="button" class="btn-icon panel-close" id="filter-close" aria-label="Close filters">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
-
+      </div>
+      <div class="filter-panel-content">
         <div class="filter-section filter-section--first">
           <h3 class="filter-title">People</h3>
           <div class="input-group">
@@ -164,11 +171,17 @@
       </div>
     </aside>
 
-    <aside class="activity-panel" id="activity-panel" hidden>
+    <aside class="activity-panel" id="activity-panel" hidden role="dialog" aria-modal="true" aria-labelledby="activity-panel-title">
+      <div class="panel-header">
+        <h2 id="activity-panel-title">Activity</h2>
+        <button type="button" class="btn-icon panel-close" id="activity-close" aria-label="Close activity">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
       <div class="activity-panel-content">
-        <div class="filter-header">
-          <h2>Activity</h2>
-        </div>
         <div class="activity-loading" id="activity-loading" hidden>
           <div class="spinner spinner-small"></div>
           <span>Loading activity...</span>

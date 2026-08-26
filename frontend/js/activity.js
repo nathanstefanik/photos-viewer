@@ -9,6 +9,7 @@ const Activity = {
     elements: {
         toggle: null,
         panel: null,
+        close: null,
         backdrop: null,
         list: null,
         empty: null,
@@ -17,9 +18,12 @@ const Activity = {
         retry: null,
     },
 
+    lastFocused: null,
+
     init() {
         this.elements.toggle = document.getElementById('activity-toggle');
         this.elements.panel = document.getElementById('activity-panel');
+        this.elements.close = document.getElementById('activity-close');
         this.elements.backdrop = document.getElementById('filter-backdrop');
         this.elements.list = document.getElementById('activity-list');
         this.elements.empty = document.getElementById('activity-empty');
@@ -30,6 +34,7 @@ const Activity = {
         if (!this.elements.toggle || !this.elements.panel) return;
 
         this.elements.toggle.addEventListener('click', () => this.toggle());
+        this.elements.close?.addEventListener('click', () => this.hide());
         this.elements.retry?.addEventListener('click', () => this.load());
     },
 
@@ -46,19 +51,33 @@ const Activity = {
     },
 
     show() {
+        // Capture focus before closing the other drawer, which would otherwise
+        // steal document.activeElement out from under us.
+        this.lastFocused = document.activeElement;
         window.Filters?.hidePanel();
         this.elements.panel.hidden = false;
         this.elements.toggle?.setAttribute('aria-expanded', 'true');
         if (this.elements.backdrop) this.elements.backdrop.hidden = false;
+        // Move focus into the panel so keyboard/screen-reader users land on
+        // the close button rather than whatever the drawer now covers.
+        (this.elements.close || this.elements.panel).focus();
         this.load();
     },
 
     hide() {
+        if (!this.isOpen()) return;
         if (this.elements.panel) this.elements.panel.hidden = true;
         this.elements.toggle?.setAttribute('aria-expanded', 'false');
         const filtersOpen = !document.getElementById('filter-panel')?.hidden;
         if (this.elements.backdrop && !filtersOpen) {
             this.elements.backdrop.hidden = true;
+        }
+        const restoreFocus = this.lastFocused;
+        this.lastFocused = null;
+        if (restoreFocus && document.body.contains(restoreFocus)) {
+            restoreFocus.focus();
+        } else {
+            this.elements.toggle?.focus();
         }
     },
 
