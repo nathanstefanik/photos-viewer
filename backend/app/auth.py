@@ -52,10 +52,6 @@ def parse_session_value(value: str) -> Optional[str]:
     return token_id
 
 
-def get_token_store(request: Request) -> TokenStore:
-    return request.app.state.token_store
-
-
 def is_trusted_proxy(peer_ip: Optional[str]) -> bool:
     """Whether peer_ip is allowed to set X-Forwarded-For/X-Real-IP for us.
 
@@ -127,20 +123,16 @@ def current_token_id(request: Request) -> Optional[str]:
     return record.id if record else None
 
 
-async def require_session(request: Request) -> str:
-    record = resolve_token(request)
-    if not record:
-        raise HTTPException(status_code=401, detail="Authentication required")
-    request.app.state.token_store.touch(record.id)
-    return record.id
-
-
 async def require_token(request: Request) -> TokenRecord:
     record = resolve_token(request)
     if not record:
         raise HTTPException(status_code=401, detail="Authentication required")
     request.app.state.token_store.touch(record.id)
     return record
+
+
+async def require_session(request: Request) -> str:
+    return (await require_token(request)).id
 
 
 def unauthenticated_response(request: Request):

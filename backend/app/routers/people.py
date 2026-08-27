@@ -6,10 +6,12 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from ..auth import require_session
+from ..auth import require_token
 from ..cache import cache_manager
 from ..config import settings
 from ..deps import get_client, validate_uuid
+from ..scope import album_ids_for_search, ensure_person_in_scope, person_ids_in_scope
+from ..tokens import TokenRecord
 
 router = APIRouter(prefix="/api")
 
@@ -17,7 +19,7 @@ router = APIRouter(prefix="/api")
 @router.get("/server-info")
 async def get_server_info(
     client: httpx.AsyncClient = Depends(get_client),
-    _auth: str = Depends(require_session),
+    _token: TokenRecord = Depends(require_token),
 ):
     try:
         response = await client.get("/api/server/about")
@@ -31,19 +33,34 @@ async def get_server_info(
 async def get_people(
     client: httpx.AsyncClient = Depends(get_client),
     withHidden: bool = False,
-    _auth: str = Depends(require_session),
+    token: TokenRecord = Depends(require_token),
 ):
-    cache_key = f"people_{withHidden}"
+    allowed = await person_ids_in_scope(client, token)
+    if allowed is not None and not allowed:
+        return {"people": [], "total": 0}
+
+    scoped = album_ids_for_search(token)
+    # Must not share people_{withHidden} across tokens — that served the full
+    # Immich directory (names + face ids) to album-scoped sessions.
+    if scoped is None:
+        cache_key = f"people:full:{withHidden}"
+        hidden = withHidden
+    else:
+        cache_key = f"people:albums:{','.join(sorted(scoped))}"
+        hidden = True
+
     cached = cache_manager.get(cache_key)
     if cached:
         return cached
 
     try:
-        response = await client.get("/api/people", params={"withHidden": withHidden})
+        response = await client.get("/api/people", params={"withHidden": hidden})
         response.raise_for_status()
         data = response.json()
         people = data.get("people", data) if isinstance(data, dict) else data
         named_people = [p for p in people if p.get("name")]
+        if allowed is not None:
+            named_people = [p for p in named_people if p.get("id") in allowed]
         named_people.sort(key=lambda x: x.get("name", "").lower())
         result = {"people": named_people, "total": len(named_people)}
         cache_manager.set(cache_key, result, ttl=settings.cache_ttl_people)
@@ -58,9 +75,10 @@ async def get_people(
 async def get_person(
     person_id: str,
     client: httpx.AsyncClient = Depends(get_client),
-    _auth: str = Depends(require_session),
+    token: TokenRecord = Depends(require_token),
 ):
     validate_uuid(person_id, "person_id")
+    await ensure_person_in_scope(client, person_id, token)
     try:
         response = await client.get(f"/api/people/{person_id}")
         response.raise_for_status()
@@ -73,9 +91,10 @@ async def get_person(
 async def get_person_thumbnail(
     person_id: str,
     client: httpx.AsyncClient = Depends(get_client),
-    _auth: str = Depends(require_session),
+    token: TokenRecord = Depends(require_token),
 ):
     validate_uuid(person_id, "person_id")
+    await ensure_person_in_scope(client, person_id, token)
     try:
         response = await client.get(f"/api/people/{person_id}/thumbnail")
         response.raise_for_status()

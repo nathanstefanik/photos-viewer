@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from ..auth import require_token
 from ..deps import ensure_guest_id, get_client, get_social, resolve_person_name, validate_uuid
 from ..schemas import CommentPayload, IdentityPayload, ReactionPayload
-from ..scope import ensure_asset_in_scope
+from ..scope import ensure_asset_in_scope, person_ids_in_scope
 from ..social import SocialStore, default_display_name, normalize_display_name
 from ..tokens import TokenRecord
 
@@ -21,7 +21,12 @@ router = APIRouter(prefix="/api")
 async def _identity_for_request(
     payload: IdentityPayload,
     client: httpx.AsyncClient,
+    token: TokenRecord,
 ) -> tuple[str, Optional[str]]:
+    if payload.personId:
+        allowed = await person_ids_in_scope(client, token)
+        if allowed is not None and payload.personId not in allowed:
+            raise HTTPException(status_code=400, detail="Person not found")
     person_name = await resolve_person_name(client, payload.personId)
     if payload.personId and not person_name:
         raise HTTPException(status_code=400, detail="Person not found")
@@ -84,7 +89,7 @@ async def toggle_asset_reaction(
     validate_uuid(asset_id, "asset_id")
     await ensure_asset_in_scope(client, asset_id, token)
     guest_id = ensure_guest_id(request, response)
-    display_name, person_id = await _identity_for_request(payload, client)
+    display_name, person_id = await _identity_for_request(payload, client, token)
     try:
         reactions = store.toggle_reaction(
             asset_id=asset_id,
@@ -111,7 +116,7 @@ async def add_asset_comment(
     validate_uuid(asset_id, "asset_id")
     await ensure_asset_in_scope(client, asset_id, token)
     guest_id = ensure_guest_id(request, response)
-    display_name, person_id = await _identity_for_request(payload, client)
+    display_name, person_id = await _identity_for_request(payload, client, token)
     try:
         comment = store.add_comment(
             asset_id=asset_id,

@@ -16,7 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .auth import current_token_id, unauthenticated_response
+from .auth import resolve_token, unauthenticated_response
 from .cache import cache_manager
 from .config import settings
 from .deps import STATIC_DIR
@@ -79,6 +79,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/api/docs" if settings.debug else None,
     redoc_url=None,
+    openapi_url="/openapi.json" if settings.debug else None,
 )
 
 app.add_middleware(
@@ -91,23 +92,25 @@ app.add_middleware(
 
 install_security_headers(app)
 
+_PUBLIC_PATHS = {
+    "/api/health",
+    "/gate",
+    "/immich-logo.svg",
+    "/favicon.ico",
+    "/favicon-32.png",
+}
+_PUBLIC_PREFIXES = ("/t/", "/css/", "/js/", "/fonts/")
+
 
 @app.middleware("http")
 async def auth_gate(request: Request, call_next):
+    # Allowlist only. A previous /api|/|/index check left /openapi.json (and
+    # any future non-api route) reachable with no session.
     path = request.url.path
-
-    if path == "/api/health" or path.startswith("/t/"):
+    if path in _PUBLIC_PATHS or path.startswith(_PUBLIC_PREFIXES):
         return await call_next(request)
-
-    if path == "/gate" or path.startswith("/css/") or path.startswith("/js/") or path.startswith("/fonts/"):
-        return await call_next(request)
-    if path in ("/immich-logo.svg", "/favicon.ico", "/favicon-32.png"):
-        return await call_next(request)
-
-    if path.startswith("/api/") or path == "/" or path.startswith("/index"):
-        if not current_token_id(request):
-            return unauthenticated_response(request)
-
+    if not resolve_token(request):
+        return unauthenticated_response(request)
     return await call_next(request)
 
 
