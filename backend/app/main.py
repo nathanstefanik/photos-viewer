@@ -79,6 +79,7 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url="/api/docs" if settings.debug else None,
     redoc_url=None,
+    openapi_url="/openapi.json" if settings.debug else None,
 )
 
 app.add_middleware(
@@ -103,14 +104,13 @@ _PUBLIC_PREFIXES = ("/t/", "/css/", "/js/", "/fonts/")
 
 @app.middleware("http")
 async def auth_gate(request: Request, call_next):
+    # Allowlist only. A previous /api|/|/index check left /openapi.json (and
+    # any future non-api route) reachable with no session.
     path = request.url.path
     if path in _PUBLIC_PATHS or path.startswith(_PUBLIC_PREFIXES):
         return await call_next(request)
-
-    if path.startswith("/api/") or path == "/" or path.startswith("/index"):
-        if not resolve_token(request):
-            return unauthenticated_response(request)
-
+    if not resolve_token(request):
+        return unauthenticated_response(request)
     return await call_next(request)
 
 
