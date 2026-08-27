@@ -1098,7 +1098,10 @@ html[data-view="large"] .gallery-item {
   top: 0;
   left: 0;
   right: 0;
-  z-index: 3;
+  /* Above .lightbox-sidebar (z-index 3): the sidebar is a later DOM sibling, so on a
+     tied z-index it would otherwise paint on top and swallow clicks on the toolbar
+     buttons (zoom, download, info) underneath it whenever the info panel is open. */
+  z-index: 4;
   display: flex;
   align-items: center;
   gap: 0.35rem;
