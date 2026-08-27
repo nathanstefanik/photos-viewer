@@ -18,6 +18,7 @@ const Lightbox = {
         sidebar: null,
         sidebarClose: null,
         sidebarContent: null,
+        zoomToggle: null,
     },
 
     currentAsset: null,
@@ -25,6 +26,18 @@ const Lightbox = {
     // Bumps on every displayMedia call so stale video handlers ignore themselves
     mediaGeneration: 0,
     _videoCleanup: null,
+
+    // Zoom/pan state for the image view. Scale is clamped to [MIN_ZOOM, MAX_ZOOM];
+    // x/y are screen-space pixel offsets applied after scaling (translate() runs
+    // after scale() in `translate(x,y) scale(s)`, so they stay in unscaled px).
+    zoom: { scale: 1, x: 0, y: 0 },
+    MIN_ZOOM: 1,
+    MAX_ZOOM: 4,
+    DOUBLE_CLICK_ZOOM: 2.5,
+    _isPanning: false,
+    _panPointer: null,
+    _pinch: null,
+    _lastTap: null,
 
     init() {
         this.elements.lightbox = document.getElementById('lightbox');
@@ -41,6 +54,7 @@ const Lightbox = {
         this.elements.sidebar = document.getElementById('lightbox-sidebar');
         this.elements.sidebarClose = document.getElementById('sidebar-close');
         this.elements.sidebarContent = document.getElementById('sidebar-content');
+        this.elements.zoomToggle = document.getElementById('lightbox-zoom-toggle');
 
         this.elements.overlay.addEventListener('click', () => this.close());
         this.elements.close.addEventListener('click', () => this.close());
@@ -52,13 +66,24 @@ const Lightbox = {
             e.preventDefault();
             this.downloadAsset();
         });
+        this.elements.zoomToggle?.addEventListener('click', () => {
+            const rect = this.elements.media.getBoundingClientRect();
+            this.toggleZoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        });
 
         document.addEventListener('keydown', (e) => this.handleKeyboard(e));
         this.elements.lightbox.addEventListener(
             'wheel',
-            (e) => e.preventDefault(),
+            (e) => {
+                e.preventDefault();
+                if (this.elements.image.hidden) return;
+                const factor = Math.exp(-e.deltaY * 0.0015);
+                this._zoomAt(this.zoom.scale * factor, e.clientX, e.clientY);
+            },
             { passive: false },
         );
+
+        this.initZoomGestures();
     },
 
     async open(asset, index) {
@@ -98,6 +123,7 @@ const Lightbox = {
         document.body.style.overflow = '';
 
         this.resetVideo();
+        this.resetZoom();
         this.currentAsset = null;
         this.currentIndex = -1;
 
@@ -162,7 +188,9 @@ const Lightbox = {
 
         // Always tear down any prior video so controls never leak onto photos
         this.resetVideo();
+        this.resetZoom();
         this.elements.image.hidden = true;
+        if (this.elements.zoomToggle) this.elements.zoomToggle.hidden = isVideo;
 
         if (isVideo) {
             this._displayVideo(asset, generation);
@@ -270,6 +298,184 @@ const Lightbox = {
                 img.src = previewUrl;
             }
         };
+    },
+
+    // ----- Zoom & pan -----
+
+    /** Zoom to `newScale`, keeping the content under (clientX, clientY) fixed on screen. */
+    _zoomAt(newScale, clientX, clientY) {
+        if (this.elements.image.hidden) return;
+
+        newScale = Math.min(this.MAX_ZOOM, Math.max(this.MIN_ZOOM, newScale));
+
+        if (newScale <= this.MIN_ZOOM + 0.001) {
+            this.zoom = { scale: 1, x: 0, y: 0 };
+        } else {
+            const rect = this.elements.media.getBoundingClientRect();
+            const cx = clientX - (rect.left + rect.width / 2);
+            const cy = clientY - (rect.top + rect.height / 2);
+            const ratio = newScale / this.zoom.scale;
+
+            this.zoom.x = cx - (cx - this.zoom.x) * ratio;
+            this.zoom.y = cy - (cy - this.zoom.y) * ratio;
+            this.zoom.scale = newScale;
+            this._clampPan();
+        }
+
+        this._applyZoomTransform();
+    },
+
+    /** Keep the zoomed image from panning past its edges. */
+    _clampPan() {
+        const img = this.elements.image;
+        const media = this.elements.media;
+        const maxX = Math.max(0, (img.offsetWidth * this.zoom.scale - media.clientWidth) / 2);
+        const maxY = Math.max(0, (img.offsetHeight * this.zoom.scale - media.clientHeight) / 2);
+        this.zoom.x = Math.min(maxX, Math.max(-maxX, this.zoom.x));
+        this.zoom.y = Math.min(maxY, Math.max(-maxY, this.zoom.y));
+    },
+
+    _applyZoomTransform() {
+        const { scale, x, y } = this.zoom;
+        this.elements.image.style.transform =
+            scale > 1.001 ? `translate(${x}px, ${y}px) scale(${scale})` : '';
+
+        const zoomed = scale > 1.001;
+        this.elements.image.classList.toggle('zoomed', zoomed);
+        if (this.elements.zoomToggle) {
+            this.elements.zoomToggle.classList.toggle('active', zoomed);
+            this.elements.zoomToggle.setAttribute('aria-label', zoomed ? 'Reset zoom' : 'Zoom in');
+        }
+    },
+
+    resetZoom() {
+        this.zoom = { scale: 1, x: 0, y: 0 };
+        this._isPanning = false;
+        this._pinch = null;
+        this.elements.image.classList.remove('panning');
+        this._applyZoomTransform();
+    },
+
+    /** Toggle between fit and a fixed zoomed-in level, centered on (clientX, clientY). */
+    toggleZoomAt(clientX, clientY) {
+        const img = this.elements.image;
+        img.classList.add('zoom-transition');
+        window.setTimeout(() => img.classList.remove('zoom-transition'), 220);
+
+        if (this.zoom.scale > 1.001) {
+            this.resetZoom();
+        } else {
+            this._zoomAt(this.DOUBLE_CLICK_ZOOM, clientX, clientY);
+        }
+    },
+
+    /** Zoom in/out around the media's center, for keyboard shortcuts. */
+    _keyboardZoom(factor) {
+        if (this.elements.image.hidden) return;
+        const rect = this.elements.media.getBoundingClientRect();
+        this._zoomAt(this.zoom.scale * factor, rect.left + rect.width / 2, rect.top + rect.height / 2);
+    },
+
+    initZoomGestures() {
+        const img = this.elements.image;
+
+        img.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            this.toggleZoomAt(e.clientX, e.clientY);
+        });
+
+        // Mouse drag-to-pan while zoomed in.
+        img.addEventListener('mousedown', (e) => {
+            if (this.zoom.scale <= 1.001) return;
+            e.preventDefault();
+            this._isPanning = true;
+            this._panPointer = { startX: e.clientX, startY: e.clientY, originX: this.zoom.x, originY: this.zoom.y };
+            img.classList.add('panning');
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!this._isPanning || !this._panPointer) return;
+            this.zoom.x = this._panPointer.originX + (e.clientX - this._panPointer.startX);
+            this.zoom.y = this._panPointer.originY + (e.clientY - this._panPointer.startY);
+            this._clampPan();
+            this._applyZoomTransform();
+        });
+        window.addEventListener('mouseup', () => {
+            if (!this._isPanning) return;
+            this._isPanning = false;
+            img.classList.remove('panning');
+        });
+
+        // Touch: pinch-to-zoom, single-finger pan while zoomed, double-tap to toggle.
+        img.addEventListener(
+            'touchstart',
+            (e) => {
+                if (e.touches.length === 2) {
+                    const [t1, t2] = e.touches;
+                    this._pinch = {
+                        startDist: Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY),
+                        startScale: this.zoom.scale,
+                    };
+                    this._isPanning = false;
+                    return;
+                }
+
+                if (e.touches.length !== 1) return;
+                const t = e.touches[0];
+
+                const now = Date.now();
+                if (
+                    this._lastTap &&
+                    now - this._lastTap.time < 300 &&
+                    Math.hypot(t.clientX - this._lastTap.x, t.clientY - this._lastTap.y) < 30
+                ) {
+                    this.toggleZoomAt(t.clientX, t.clientY);
+                    this._lastTap = null;
+                    return;
+                }
+                this._lastTap = { time: now, x: t.clientX, y: t.clientY };
+
+                if (this.zoom.scale > 1.001) {
+                    this._isPanning = true;
+                    this._panPointer = {
+                        startX: t.clientX,
+                        startY: t.clientY,
+                        originX: this.zoom.x,
+                        originY: this.zoom.y,
+                    };
+                }
+            },
+            { passive: true },
+        );
+
+        img.addEventListener(
+            'touchmove',
+            (e) => {
+                if (e.touches.length === 2 && this._pinch) {
+                    e.preventDefault();
+                    const [t1, t2] = e.touches;
+                    const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+                    const midX = (t1.clientX + t2.clientX) / 2;
+                    const midY = (t1.clientY + t2.clientY) / 2;
+                    this._zoomAt(this._pinch.startScale * (dist / this._pinch.startDist), midX, midY);
+                    return;
+                }
+
+                if (e.touches.length === 1 && this._isPanning && this._panPointer) {
+                    e.preventDefault();
+                    const t = e.touches[0];
+                    this.zoom.x = this._panPointer.originX + (t.clientX - this._panPointer.startX);
+                    this.zoom.y = this._panPointer.originY + (t.clientY - this._panPointer.startY);
+                    this._clampPan();
+                    this._applyZoomTransform();
+                }
+            },
+            { passive: false },
+        );
+
+        img.addEventListener('touchend', (e) => {
+            if (e.touches.length < 2) this._pinch = null;
+            if (e.touches.length === 0) this._isPanning = false;
+        });
     },
 
     toggleSidebar() {
@@ -475,6 +681,20 @@ const Lightbox = {
                 break;
             case 'i':
                 this.toggleSidebar();
+                break;
+            case '+':
+            case '=':
+                e.preventDefault();
+                this._keyboardZoom(1.3);
+                break;
+            case '-':
+            case '_':
+                e.preventDefault();
+                this._keyboardZoom(1 / 1.3);
+                break;
+            case '0':
+                e.preventDefault();
+                this.resetZoom();
                 break;
         }
     },

@@ -1050,6 +1050,28 @@ html[data-view="large"] .gallery-item {
   display: none !important;
 }
 
+.lightbox-image {
+  cursor: zoom-in;
+  touch-action: none;
+  transform-origin: center center;
+}
+
+.lightbox-image.zoomed {
+  cursor: grab;
+}
+
+.lightbox-image.panning {
+  cursor: grabbing;
+}
+
+.lightbox-image.zoom-transition {
+  transition: transform 0.2s ease;
+}
+
+.lightbox-tool.active {
+  background: rgba(66, 80, 175, 0.85);
+}
+
 .lightbox-nav,
 .lightbox-tool {
   z-index: 2;
@@ -1452,6 +1474,12 @@ html[data-view="large"] .gallery-item {
   .lightbox-download {
     width: 2.75rem;
     padding: 0;
+  }
+}
+
+@media (hover: none) {
+  .lightbox-image.zoomed {
+    cursor: default;
   }
 }
 
