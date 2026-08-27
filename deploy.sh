@@ -16,6 +16,24 @@ TAR=/tmp/photos-viewer.tgz
 SSH=(ssh -o BatchMode=yes)
 SCP=(scp -o BatchMode=yes)
 
+# Keep in sync with .gitignore (plus tests — no reason to ship them to the CT).
+TAR_EXCLUDES=(
+  .git
+  .env
+  ._*
+  .DS_Store
+  data
+  LOCAL.md
+  '*.local.md'
+  deploy.conf
+  .venv
+  venv
+  __pycache__
+  '*.pyc'
+  '*.db'
+  backend/tests
+)
+
 # Defaults match this homelab. Override via
 # deploy.conf (gitignored) or CLI flags.
 PVE_HOST=pve
@@ -74,35 +92,30 @@ if ! grep -q 'hmac.new(' "$SCRIPT_DIR/backend/app/tokens.py"; then
   exit 1
 fi
 
-# Rebuild + healthcheck start_period can exceed compose's 60s --wait default.
-compose="docker compose up -d --wait --wait-timeout 120"
+compose="docker compose up -d"
 if [[ "$DO_BUILD" -eq 1 ]]; then
-  compose="docker compose up -d --build --force-recreate --wait --wait-timeout 120"
+  compose+=" --build --force-recreate"
 fi
+# Rebuild + healthcheck start_period can exceed compose's 60s --wait default.
+compose+=" --wait --wait-timeout 120"
 
-ct_cmd="set -euo pipefail"
+ct_script="set -euo pipefail"
 if [[ "$DO_SYNC" -eq 1 ]]; then
-  ct_cmd+="
+  ct_script+="
 find '$DEPLOY_PATH' -name '._*' -delete 2>/dev/null || true
 tar xzf '$TAR' -C '$DEPLOY_PATH'
 find '$DEPLOY_PATH' -name '._*' -delete 2>/dev/null || true"
 fi
 # prune is &&-chained so a failed cd/compose cannot look like success.
-ct_cmd+="
+ct_script+="
 cd '$DEPLOY_PATH' && $compose && docker image prune -f"
-
-pve_cmd=""
-if [[ "$DO_SYNC" -eq 1 ]]; then
-  pve_cmd="pct push '$CTID' '$TAR' '$TAR' && "
-fi
-pve_cmd+="pct exec '$CTID' -- bash -lc $(printf '%q' "$ct_cmd")"
 
 echo "==> ${PVE_HOST}  CT ${CTID}  ${DEPLOY_PATH}"
 if [[ "$DO_SYNC" -eq 1 ]]; then
   echo "==> tar + scp ${TAR} -> ${PVE_HOST}:${TAR} && pct push ${CTID}"
 fi
-echo "==> pct exec ${CTID} -- bash -lc"
-echo "$ct_cmd"
+echo "==> pct exec ${CTID} -- bash -s"
+echo "$ct_script"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   echo "(dry run, not connecting)"
@@ -112,20 +125,26 @@ fi
 trap 'rm -f "$TAR"' EXIT
 
 if [[ "$DO_SYNC" -eq 1 ]]; then
-  COPYFILE_DISABLE=1 tar czf "$TAR" \
-    --exclude='.git' \
-    --exclude='.env' \
-    --exclude='._*' \
-    --exclude='.DS_Store' \
-    --exclude='data' \
-    --exclude='LOCAL.md' \
-    --exclude='deploy.conf' \
-    --exclude='.venv' \
-    --exclude='venv' \
-    --exclude='__pycache__' \
-    -C "$SCRIPT_DIR" .
+  exclude_args=()
+  for pat in "${TAR_EXCLUDES[@]}"; do
+    exclude_args+=(--exclude="$pat")
+  done
+  COPYFILE_DISABLE=1 tar czf "$TAR" "${exclude_args[@]}" -C "$SCRIPT_DIR" .
   "${SCP[@]}" "$TAR" "${PVE_HOST}:${TAR}"
 fi
 
-"${SSH[@]}" "$PVE_HOST" "$pve_cmd"
+# Same bytes as the dry-run print: pve runs pct push, then feeds ct_script to
+# bash -s inside the CT. Quoted <<'CT' so the CT does not re-expand the script.
+"${SSH[@]}" "$PVE_HOST" bash -s <<EOF
+set -euo pipefail
+$(
+  if [[ "$DO_SYNC" -eq 1 ]]; then
+    printf "pct push '%s' '%s' '%s'\n" "$CTID" "$TAR" "$TAR"
+  fi
+)
+pct exec '$CTID' -- bash -s <<'CT'
+$ct_script
+CT
+EOF
+
 echo "==> done"
