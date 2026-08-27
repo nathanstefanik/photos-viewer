@@ -13,13 +13,13 @@ from ..auth import (
     SESSION_COOKIE,
     client_ip,
     make_session_value,
-    require_session,
+    require_token,
     session_cookie_max_age,
 )
 from ..config import settings
 from ..deps import STATIC_DIR, get_client
 from ..ratelimit import redeem_allowed
-from ..tokens import TokenStore, normalize_token
+from ..tokens import TokenStore, TokenRecord, normalize_token
 
 router = APIRouter()
 logger = logging.getLogger("photos_viewer.access")
@@ -92,7 +92,7 @@ async def gate_page():
 
 
 @router.get("/")
-async def index(_auth: str = Depends(require_session)):
+async def index(_token: TokenRecord = Depends(require_token)):
     return _static_file("index.html", missing="frontend missing")
 
 

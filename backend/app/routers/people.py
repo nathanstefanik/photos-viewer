@@ -6,10 +6,11 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from ..auth import require_session
+from ..auth import require_token
 from ..cache import cache_manager
 from ..config import settings
 from ..deps import get_client, validate_uuid
+from ..tokens import TokenRecord
 
 router = APIRouter(prefix="/api")
 
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/api")
 @router.get("/server-info")
 async def get_server_info(
     client: httpx.AsyncClient = Depends(get_client),
-    _auth: str = Depends(require_session),
+    _token: TokenRecord = Depends(require_token),
 ):
     try:
         response = await client.get("/api/server/about")
@@ -31,7 +32,7 @@ async def get_server_info(
 async def get_people(
     client: httpx.AsyncClient = Depends(get_client),
     withHidden: bool = False,
-    _auth: str = Depends(require_session),
+    _token: TokenRecord = Depends(require_token),
 ):
     cache_key = f"people_{withHidden}"
     cached = cache_manager.get(cache_key)
@@ -58,7 +59,7 @@ async def get_people(
 async def get_person(
     person_id: str,
     client: httpx.AsyncClient = Depends(get_client),
-    _auth: str = Depends(require_session),
+    _token: TokenRecord = Depends(require_token),
 ):
     validate_uuid(person_id, "person_id")
     try:
@@ -73,7 +74,7 @@ async def get_person(
 async def get_person_thumbnail(
     person_id: str,
     client: httpx.AsyncClient = Depends(get_client),
-    _auth: str = Depends(require_session),
+    _token: TokenRecord = Depends(require_token),
 ):
     validate_uuid(person_id, "person_id")
     try:
