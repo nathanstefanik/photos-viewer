@@ -27,17 +27,24 @@ const Lightbox = {
     mediaGeneration: 0,
     _videoCleanup: null,
 
-    // Zoom/pan state for the image view. Scale is clamped to [MIN_ZOOM, MAX_ZOOM];
-    // x/y are screen-space pixel offsets applied after scaling (translate() runs
-    // after scale() in `translate(x,y) scale(s)`, so they stay in unscaled px).
+    // Zoom/pan state for the image view. Scale is clamped to [MIN_ZOOM, maxZoom],
+    // where maxZoom (see _getMaxZoom) is computed per-asset so "100%" always means
+    // one native image pixel per device pixel — zoom can never go past what the
+    // source actually has. x/y are screen-space pixel offsets applied after scaling
+    // (translate() runs after scale() in `translate(x,y) scale(s)`, so they stay in
+    // unscaled px).
     zoom: { scale: 1, x: 0, y: 0 },
     MIN_ZOOM: 1,
-    MAX_ZOOM: 4,
-    DOUBLE_CLICK_ZOOM: 2.5,
+    HARD_MAX_ZOOM: 8, // sanity ceiling if exif dimensions are missing/bogus
+    FALLBACK_MAX_ZOOM: 3, // used before layout/exif are known
+    EDGE_HANDOFF_PX: 70, // overdrag past the pan limit that hands off to prev/next
+    SWIPE_THRESHOLD_PX: 50, // horizontal drag at Fit that counts as swipe-to-navigate
     _isPanning: false,
     _panPointer: null,
     _pinch: null,
     _lastTap: null,
+    _swipePointer: null,
+    _wheelZoomSnapTimer: null,
 
     init() {
         this.elements.lightbox = document.getElementById('lightbox');
@@ -75,10 +82,38 @@ const Lightbox = {
         this.elements.lightbox.addEventListener(
             'wheel',
             (e) => {
-                e.preventDefault();
+                // Let the metadata sidebar scroll normally.
+                if (
+                    this.elements.sidebar &&
+                    !this.elements.sidebar.hidden &&
+                    this.elements.sidebar.contains(e.target)
+                ) {
+                    return;
+                }
                 if (this.elements.image.hidden) return;
-                const factor = Math.exp(-e.deltaY * 0.0015);
-                this._zoomAt(this.zoom.scale * factor, e.clientX, e.clientY);
+
+                // A trackpad pinch arrives as wheel+ctrlKey (browsers synthesize this);
+                // plain two-finger scroll should pan when zoomed, not always zoom.
+                if (e.ctrlKey) {
+                    e.preventDefault();
+                    const factor = Math.exp(-e.deltaY * 0.0015);
+                    this._zoomAt(this.zoom.scale * factor, e.clientX, e.clientY);
+                    // Wheel events have no discrete "gesture end" — treat a pause as
+                    // the end of the pinch and snap if we landed near a stop.
+                    clearTimeout(this._wheelZoomSnapTimer);
+                    this._wheelZoomSnapTimer = window.setTimeout(
+                        () => this._snapZoomToStop(e.clientX, e.clientY),
+                        150,
+                    );
+                    return;
+                }
+
+                if (this.zoom.scale <= this.MIN_ZOOM + 0.001) return;
+                e.preventDefault();
+                this.zoom.x -= e.deltaX;
+                this.zoom.y -= e.deltaY;
+                this._clampPan();
+                this._applyZoomTransform();
             },
             { passive: false },
         );
@@ -275,6 +310,13 @@ const Lightbox = {
         const img = this.elements.image;
         img.alt = asset.originalFileName || 'Photo';
         img.hidden = false;
+        // Drop any size pin left by a previous asset's full-res swap (see
+        // _prefetchFullRes) so this asset's Fit size is computed fresh.
+        img.style.width = '';
+        img.style.height = '';
+        this._fullResRequested = false;
+        this._fullResLoaded = false;
+        this._fullResFailed = false;
 
         const thumbnailUrl = API.getThumbnailUrl(asset.id, 'thumbnail');
         const previewUrl = API.getThumbnailUrl(asset.id, 'preview');
@@ -283,6 +325,9 @@ const Lightbox = {
         img.onload = () => {
             if (generation !== this.mediaGeneration) return;
             this.hideLoading();
+            // Layout/exif are only reliably known once the image has actually
+            // rendered — refresh the zoom ceiling and chip now that they are.
+            this._updateZoomChip();
         };
         img.onerror = () => {
             if (generation !== this.mediaGeneration) return;
@@ -305,8 +350,9 @@ const Lightbox = {
     /** Zoom to `newScale`, keeping the content under (clientX, clientY) fixed on screen. */
     _zoomAt(newScale, clientX, clientY) {
         if (this.elements.image.hidden) return;
+        if (newScale > this.MIN_ZOOM + 0.001) this._prefetchFullRes();
 
-        newScale = Math.min(this.MAX_ZOOM, Math.max(this.MIN_ZOOM, newScale));
+        newScale = Math.min(this._getMaxZoom(), Math.max(this.MIN_ZOOM, newScale));
 
         if (newScale <= this.MIN_ZOOM + 0.001) {
             this.zoom = { scale: 1, x: 0, y: 0 };
@@ -325,14 +371,140 @@ const Lightbox = {
         this._applyZoomTransform();
     },
 
-    /** Keep the zoomed image from panning past its edges. */
-    _clampPan() {
+    /** Native (1:1 device-pixel) zoom ceiling for the current asset — "100%" always
+     *  means one source pixel per device pixel, never a blown-up preview. Recomputed
+     *  live from current layout/exif rather than cached, so it tracks resizes for free. */
+    _getMaxZoom() {
+        const img = this.elements.image;
+        const displayedWidth = img.offsetWidth;
+        if (!displayedWidth) return this.FALLBACK_MAX_ZOOM;
+
+        let nativeWidth = this.currentAsset?.exifInfo?.exifImageWidth;
+
+        // If the full-res original failed to decode (HEIC/RAW the browser can't
+        // render, etc.), don't let exif metadata promise more detail than what's
+        // actually on screen — cap to the loaded preview's own resolution instead.
+        if (this._fullResFailed && img.naturalWidth) {
+            nativeWidth = nativeWidth ? Math.min(nativeWidth, img.naturalWidth) : img.naturalWidth;
+        }
+
+        if (!nativeWidth) return this.FALLBACK_MAX_ZOOM;
+
+        const dpr = window.devicePixelRatio || 1;
+        const scale = nativeWidth / dpr / displayedWidth;
+        return Math.max(this.MIN_ZOOM, Math.min(scale, this.HARD_MAX_ZOOM));
+    },
+
+    /** False when the asset is already displayed at/above native resolution — no
+     *  point offering zoom (and it'd otherwise just magnify a soft preview). */
+    _zoomAvailable() {
+        return this._getMaxZoom() > this.MIN_ZOOM + 0.02;
+    },
+
+    /** Lazily fetch the full-resolution original and hot-swap it in once decoded, so
+     *  zooming past the preview actually reveals detail instead of magnifying mush.
+     *  Safe to call repeatedly/speculatively — only the first call per asset does
+     *  anything. Silently gives up (and caps zoom to the preview) if the browser
+     *  can't decode the original, e.g. HEIC/RAW sources. */
+    _prefetchFullRes() {
+        const asset = this.currentAsset;
+        if (!asset || asset.type === 'VIDEO' || this._fullResRequested) return;
+        this._fullResRequested = true;
+
+        const img = this.elements.image;
+        if (!img.decode) {
+            this._fullResFailed = true;
+            return;
+        }
+
+        const generation = this.mediaGeneration;
+        const assetId = asset.id;
+        const originalUrl = API.getOriginalUrl(assetId);
+        const original = new Image();
+        original.src = originalUrl;
+
+        original
+            .decode()
+            .then(() => {
+                if (generation !== this.mediaGeneration || this.currentAsset?.id !== assetId) return;
+                // Pin the box to its current (preview-derived) Fit size before swapping.
+                // Without this, a preview that already fits the viewport at native size
+                // would jump when replaced by a much larger original that gets scaled
+                // down differently by the max-width/max-height auto-sizing — the pin
+                // makes the swap provably seamless regardless of monitor size.
+                img.style.width = `${img.offsetWidth}px`;
+                img.style.height = `${img.offsetHeight}px`;
+                img.src = originalUrl;
+                this._fullResLoaded = true;
+                this._updateZoomChip();
+            })
+            .catch(() => {
+                if (generation !== this.mediaGeneration || this.currentAsset?.id !== assetId) return;
+                this._fullResFailed = true;
+                // maxZoom may have just shrunk to the preview's real resolution —
+                // pull the current scale back within it if the gesture already
+                // zoomed past what the preview actually has.
+                const rect = this.elements.media.getBoundingClientRect();
+                this._zoomAt(this.zoom.scale, rect.left + rect.width / 2, rect.top + rect.height / 2);
+            });
+
+        this._updateZoomChip();
+    },
+
+    /** How far the image can pan before its edge would show empty space. */
+    _panLimits() {
         const img = this.elements.image;
         const media = this.elements.media;
-        const maxX = Math.max(0, (img.offsetWidth * this.zoom.scale - media.clientWidth) / 2);
-        const maxY = Math.max(0, (img.offsetHeight * this.zoom.scale - media.clientHeight) / 2);
-        this.zoom.x = Math.min(maxX, Math.max(-maxX, this.zoom.x));
-        this.zoom.y = Math.min(maxY, Math.max(-maxY, this.zoom.y));
+        return {
+            maxX: Math.max(0, (img.offsetWidth * this.zoom.scale - media.clientWidth) / 2),
+            maxY: Math.max(0, (img.offsetHeight * this.zoom.scale - media.clientHeight) / 2),
+        };
+    },
+
+    /** Keep the zoomed image from panning past its edges. With `rubberBand`, allow a
+     *  resisted overdrag instead of a hard stop — used while a touch drag is live so
+     *  the edge feels soft instead of a wall. */
+    _clampPan({ rubberBand = false } = {}) {
+        const { maxX, maxY } = this._panLimits();
+        if (rubberBand) {
+            this.zoom.x = this._rubberBand(this.zoom.x, maxX);
+            this.zoom.y = this._rubberBand(this.zoom.y, maxY);
+        } else {
+            this.zoom.x = Math.min(maxX, Math.max(-maxX, this.zoom.x));
+            this.zoom.y = Math.min(maxY, Math.max(-maxY, this.zoom.y));
+        }
+    },
+
+    _rubberBand(value, max) {
+        if (value > max) return max + (value - max) * 0.35;
+        if (value < -max) return -max - (-value - max) * 0.35;
+        return value;
+    },
+
+    /** Animate the pan back within bounds after a released overdrag that didn't
+     *  clear the edge-handoff threshold. */
+    _springBackPan() {
+        this.elements.image.classList.add('zoom-transition');
+        this._clampPan();
+        this._applyZoomTransform();
+        window.setTimeout(() => this.elements.image.classList.remove('zoom-transition'), 220);
+    },
+
+    /** After a continuous zoom gesture (pinch, trackpad pinch) ends near a stop
+     *  (within 15% of the Fit/100% range), snap to it — keeps the two named stops
+     *  the primary interaction model while leaving the gesture itself continuous. */
+    _snapZoomToStop(clientX, clientY) {
+        const maxZoom = this._getMaxZoom();
+        const distToMin = Math.abs(this.zoom.scale - this.MIN_ZOOM);
+        const distToMax = Math.abs(this.zoom.scale - maxZoom);
+        const nearest = distToMin < distToMax ? this.MIN_ZOOM : maxZoom;
+        const threshold = (maxZoom - this.MIN_ZOOM) * 0.15;
+
+        if (Math.min(distToMin, distToMax) > threshold) return;
+
+        this.elements.image.classList.add('zoom-transition');
+        this._zoomAt(nearest, clientX, clientY);
+        window.setTimeout(() => this.elements.image.classList.remove('zoom-transition'), 220);
     },
 
     _applyZoomTransform() {
@@ -340,24 +512,45 @@ const Lightbox = {
         this.elements.image.style.transform =
             scale > 1.001 ? `translate(${x}px, ${y}px) scale(${scale})` : '';
 
-        const zoomed = scale > 1.001;
-        this.elements.image.classList.toggle('zoomed', zoomed);
-        if (this.elements.zoomToggle) {
-            this.elements.zoomToggle.classList.toggle('active', zoomed);
-            this.elements.zoomToggle.setAttribute('aria-label', zoomed ? 'Reset zoom' : 'Zoom in');
+        this.elements.image.classList.toggle('zoomed', scale > 1.001);
+        this._updateZoomChip();
+    },
+
+    /** Sync the toolbar zoom chip's label ("Fit" / live % while dragging / "100%")
+     *  and visibility with current zoom state. */
+    _updateZoomChip() {
+        const btn = this.elements.zoomToggle;
+        if (!btn) return;
+
+        btn.hidden = this.elements.image.hidden || !this._zoomAvailable();
+
+        const zoomed = this.zoom.scale > this.MIN_ZOOM + 0.001;
+        btn.classList.toggle('active', zoomed);
+        btn.setAttribute('aria-label', zoomed ? 'Reset zoom' : 'Zoom to 100%');
+
+        const label = btn.querySelector('.zoom-chip-label');
+        if (label) {
+            const loadingOriginal = this._fullResRequested && !this._fullResLoaded && !this._fullResFailed;
+            const text = zoomed ? `${Math.round((this.zoom.scale / this._getMaxZoom()) * 100)}%` : 'Fit';
+            label.textContent = loadingOriginal ? `${text} …` : text;
         }
     },
 
     resetZoom() {
+        clearTimeout(this._wheelZoomSnapTimer);
         this.zoom = { scale: 1, x: 0, y: 0 };
         this._isPanning = false;
         this._pinch = null;
+        this._swipePointer = null;
+        this._lastTap = null;
         this.elements.image.classList.remove('panning');
         this._applyZoomTransform();
     },
 
-    /** Toggle between fit and a fixed zoomed-in level, centered on (clientX, clientY). */
+    /** Toggle between Fit and native 100%, centered on (clientX, clientY). */
     toggleZoomAt(clientX, clientY) {
+        if (this.zoom.scale <= 1.001 && !this._zoomAvailable()) return;
+
         const img = this.elements.image;
         img.classList.add('zoom-transition');
         window.setTimeout(() => img.classList.remove('zoom-transition'), 220);
@@ -365,7 +558,7 @@ const Lightbox = {
         if (this.zoom.scale > 1.001) {
             this.resetZoom();
         } else {
-            this._zoomAt(this.DOUBLE_CLICK_ZOOM, clientX, clientY);
+            this._zoomAt(this._getMaxZoom(), clientX, clientY);
         }
     },
 
@@ -378,6 +571,11 @@ const Lightbox = {
 
     initZoomGestures() {
         const img = this.elements.image;
+
+        // Warm the full-res fetch as soon as a zoom-ish gesture starts (dblclick,
+        // pinch, drag) rather than waiting for it to land — the request is the
+        // slow part, not the decode.
+        img.addEventListener('pointerdown', () => this._prefetchFullRes(), { passive: true });
 
         img.addEventListener('dblclick', (e) => {
             e.preventDefault();
@@ -405,7 +603,9 @@ const Lightbox = {
             img.classList.remove('panning');
         });
 
-        // Touch: pinch-to-zoom, single-finger pan while zoomed, double-tap to toggle.
+        // Touch: pinch-to-zoom (snaps to Fit/100% near release), single-finger pan
+        // while zoomed (rubber-bands at the edge and hands off to prev/next on a
+        // sustained overdrag), swipe-to-navigate at Fit, and double-tap to toggle.
         img.addEventListener(
             'touchstart',
             (e) => {
@@ -414,8 +614,11 @@ const Lightbox = {
                     this._pinch = {
                         startDist: Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY),
                         startScale: this.zoom.scale,
+                        lastX: (t1.clientX + t2.clientX) / 2,
+                        lastY: (t1.clientY + t2.clientY) / 2,
                     };
                     this._isPanning = false;
+                    this._swipePointer = null;
                     return;
                 }
 
@@ -441,7 +644,11 @@ const Lightbox = {
                         startY: t.clientY,
                         originX: this.zoom.x,
                         originY: this.zoom.y,
+                        overdragDir: 0,
+                        overdragAmount: 0,
                     };
+                } else {
+                    this._swipePointer = { startX: t.clientX, startY: t.clientY };
                 }
             },
             { passive: true },
@@ -456,6 +663,8 @@ const Lightbox = {
                     const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
                     const midX = (t1.clientX + t2.clientX) / 2;
                     const midY = (t1.clientY + t2.clientY) / 2;
+                    this._pinch.lastX = midX;
+                    this._pinch.lastY = midY;
                     this._zoomAt(this._pinch.startScale * (dist / this._pinch.startDist), midX, midY);
                     return;
                 }
@@ -463,18 +672,66 @@ const Lightbox = {
                 if (e.touches.length === 1 && this._isPanning && this._panPointer) {
                     e.preventDefault();
                     const t = e.touches[0];
-                    this.zoom.x = this._panPointer.originX + (t.clientX - this._panPointer.startX);
-                    this.zoom.y = this._panPointer.originY + (t.clientY - this._panPointer.startY);
-                    this._clampPan();
+                    const rawX = this._panPointer.originX + (t.clientX - this._panPointer.startX);
+                    const rawY = this._panPointer.originY + (t.clientY - this._panPointer.startY);
+                    const { maxX } = this._panLimits();
+
+                    // Track how far past the hard limit the finger has dragged, in the
+                    // outward direction, so touchend can decide whether to hand off to
+                    // prev/next instead of just springing back.
+                    this._panPointer.overdragAmount = Math.max(0, Math.abs(rawX) - maxX);
+                    this._panPointer.overdragDir =
+                        this._panPointer.overdragAmount > 0 ? Math.sign(rawX) : 0;
+
+                    this.zoom.x = rawX;
+                    this.zoom.y = rawY;
+                    this._clampPan({ rubberBand: true });
                     this._applyZoomTransform();
+                    return;
+                }
+
+                if (e.touches.length === 1 && this._swipePointer) {
+                    const t = e.touches[0];
+                    const dx = t.clientX - this._swipePointer.startX;
+                    const dy = t.clientY - this._swipePointer.startY;
+                    if (Math.abs(dx) > Math.abs(dy)) e.preventDefault();
                 }
             },
             { passive: false },
         );
 
         img.addEventListener('touchend', (e) => {
-            if (e.touches.length < 2) this._pinch = null;
-            if (e.touches.length === 0) this._isPanning = false;
+            if (e.touches.length < 2 && this._pinch) {
+                const { lastX, lastY } = this._pinch;
+                this._pinch = null;
+                this._snapZoomToStop(lastX, lastY);
+            }
+            if (e.touches.length > 0) return;
+
+            if (this._isPanning && this._panPointer) {
+                const { overdragDir, overdragAmount } = this._panPointer;
+                this._isPanning = false;
+                // Positive x clamp = image's left edge is fully visible = "beginning";
+                // dragging further right past that hands off to the previous photo.
+                // Symmetric on the other edge/direction for next.
+                if (overdragAmount > this.EDGE_HANDOFF_PX) {
+                    if (overdragDir > 0) this.previous();
+                    else this.next();
+                } else {
+                    this._springBackPan();
+                }
+            }
+
+            if (this._swipePointer) {
+                const t = e.changedTouches[0];
+                const dx = t.clientX - this._swipePointer.startX;
+                const dy = t.clientY - this._swipePointer.startY;
+                this._swipePointer = null;
+                if (Math.abs(dx) > this.SWIPE_THRESHOLD_PX && Math.abs(dx) > Math.abs(dy)) {
+                    if (dx > 0) this.previous();
+                    else this.next();
+                }
+            }
         });
     },
 

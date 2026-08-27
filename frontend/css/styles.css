@@ -1093,6 +1093,13 @@ html[data-view="large"] .gallery-item {
   background: rgba(66, 80, 175, 0.85);
 }
 
+/* The unconditional `display: inline-flex` above otherwise wins the cascade over the
+   UA [hidden]{display:none} rule (author origin beats UA origin regardless of
+   specificity), so the `hidden` attribute alone wouldn't actually hide these buttons. */
+.lightbox-tool[hidden] {
+  display: none !important;
+}
+
 .lightbox-toolbar {
   position: absolute;
   top: 0;
@@ -1116,6 +1123,17 @@ html[data-view="large"] .gallery-item {
 .lightbox-download {
   width: auto;
   padding: 0 0.9rem;
+}
+
+.lightbox-zoom-chip {
+  width: auto;
+  padding: 0 0.9rem;
+}
+
+.zoom-chip-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .lightbox-nav {

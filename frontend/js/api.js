@@ -82,6 +82,10 @@ const API = {
         return `${this.baseUrl}/assets/${assetId}/thumbnail?size=${size}`;
     },
 
+    getOriginalUrl(assetId) {
+        return `${this.baseUrl}/assets/${assetId}/original`;
+    },
+
     getDownloadUrl(assetId) {
         return `${this.baseUrl}/assets/${assetId}/download`;
     },
