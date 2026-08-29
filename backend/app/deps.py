@@ -10,13 +10,16 @@ from fastapi import HTTPException, Request, Response
 
 from .config import settings
 from .media_cache import MediaCache
-from .social import SocialStore, new_guest_id
+from .social_store import SocialStore, new_guest_id
 from .validation import UUID_PATTERN
 
 GUEST_COOKIE = "viewer_guest"
 GUEST_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
 
-STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+# Docker copies frontend → backend/static; local run uses the repo frontend/.
+_BACKEND_ROOT = Path(__file__).resolve().parent.parent
+_STATIC_CANDIDATES = (_BACKEND_ROOT / "static", _BACKEND_ROOT.parent / "frontend")
+STATIC_DIR = next((p for p in _STATIC_CANDIDATES if p.is_dir()), _STATIC_CANDIDATES[0])
 
 
 def validate_uuid(value: str, field_name: str = "id") -> str:

@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..auth import require_token
-from ..cache import cache_manager
+from ..memory_cache import cache_manager
 from ..config import settings
 from ..deps import get_client, get_media_cache, validate_uuid
 from ..media_cache import MediaCache, as_response, person_thumb_key

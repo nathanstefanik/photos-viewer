@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from ..auth import require_token
 from ..deps import get_client, get_social
 from ..scope import album_ids_for_search, ensure_asset_in_scope
-from ..social import SocialStore
+from ..social_store import SocialStore
 from ..tokens import TokenRecord
 from ..validation import is_uuid
 

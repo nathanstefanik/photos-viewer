@@ -1,4 +1,4 @@
-"""Static pages, access-code redemption, and health check."""
+"""Gate page, access-code redemption, health check, and static HTML assets."""
 
 from __future__ import annotations
 

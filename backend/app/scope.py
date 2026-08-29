@@ -7,7 +7,7 @@ from typing import Optional
 import httpx
 from fastapi import HTTPException
 
-from .cache import cache_manager
+from .memory_cache import cache_manager
 from .tokens import TokenRecord
 
 

@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from .social import is_single_emoji
+from .social_store import is_single_emoji
 from .validation import UUID_PATTERN
 
 

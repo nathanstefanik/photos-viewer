@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 
-from app.social import (
+from app.social_store import (
     SocialStore,
     default_display_name,
     is_single_emoji,
