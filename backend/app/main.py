@@ -20,6 +20,7 @@ from .auth import resolve_token, unauthenticated_response
 from .cache import cache_manager
 from .config import settings
 from .deps import STATIC_DIR
+from .media_cache import MediaCache
 from .routers import activity as activity_router
 from .routers import assets, pages, people, search
 from .routers import social as social_router
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI):
 
     app.state.token_store = TokenStore(settings.tokens_db_path, settings.session_secret)
     app.state.social_store = SocialStore(settings.tokens_db_path)
+    app.state.media_cache = MediaCache(settings.media_cache_dir, settings.media_cache_max_bytes)
 
     timeout = httpx.Timeout(30.0, read=120.0)
     app.state.http_client = httpx.AsyncClient(

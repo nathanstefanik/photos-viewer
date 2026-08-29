@@ -17,6 +17,7 @@ from pathlib import Path
 from threading import Lock
 from typing import AsyncIterator, Optional
 
+import httpx
 from fastapi import Request
 from fastapi.responses import FileResponse, Response
 
@@ -211,3 +212,21 @@ class MediaCache:
             if hit:
                 return hit
             return await filler()
+
+    async def fill_http(
+        self,
+        key: str,
+        client: httpx.AsyncClient,
+        url: str,
+        params: Optional[dict] = None,
+    ) -> CachedMedia:
+        req = client.build_request("GET", url, params=params)
+        response = await client.send(req, stream=True)
+        try:
+            response.raise_for_status()
+            content_type = (response.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
+            return await self.store_stream(
+                key, response.aiter_bytes(chunk_size=_CHUNK), content_type or "image/jpeg"
+            )
+        finally:
+            await response.aclose()

@@ -9,6 +9,7 @@ import httpx
 from fastapi import HTTPException, Request, Response
 
 from .config import settings
+from .media_cache import MediaCache
 from .social import SocialStore, new_guest_id
 from .validation import UUID_PATTERN
 
@@ -30,6 +31,10 @@ def get_client(request: Request) -> httpx.AsyncClient:
 
 def get_social(request: Request) -> SocialStore:
     return request.app.state.social_store
+
+
+def get_media_cache(request: Request) -> MediaCache:
+    return request.app.state.media_cache
 
 
 def _guest_id_from_request(request: Request) -> Optional[str]:
