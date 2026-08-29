@@ -2,50 +2,18 @@
 
 from __future__ import annotations
 
-from io import BytesIO
-
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..auth import require_token
 from ..deps import get_client, get_media_cache, validate_uuid
-from ..media_cache import MediaCache, as_response, asset_thumb_key
+from ..media_cache import MediaCache, as_response, asset_original_key, asset_thumb_key
 from ..proxy import stream_upstream
 from ..schemas import PaginatedResponse
 from ..scope import album_ids_for_search, ensure_asset_in_scope
 from ..tokens import TokenRecord
 
-try:
-    from PIL import Image
-    PIL_AVAILABLE = True
-except ImportError:
-    PIL_AVAILABLE = False
-
 router = APIRouter(prefix="/api")
-
-_MAX_THUMB_BYTES = 5 * 1024 * 1024
-
-
-def _recompress_if_huge(content: bytes, content_type: str) -> tuple[bytes, str]:
-    if not PIL_AVAILABLE or len(content) <= _MAX_THUMB_BYTES:
-        return content, content_type
-    try:
-        img = Image.open(BytesIO(content))
-        if img.mode == "RGBA" and "jpeg" in content_type.lower():
-            rgb_img = Image.new("RGB", img.size, (255, 255, 255))
-            rgb_img.paste(img, mask=img.split()[3])
-            img = rgb_img
-        output = BytesIO()
-        for quality in [85, 75, 65, 55]:
-            output.seek(0)
-            output.truncate(0)
-            img.save(output, format="JPEG", quality=quality, optimize=True)
-            if output.tell() <= _MAX_THUMB_BYTES:
-                break
-        return output.getvalue(), "image/jpeg"
-    except Exception as e:
-        print(f"Warning: Failed to compress image: {e}")
-        return content, content_type
 
 
 @router.get("/assets")
@@ -109,14 +77,9 @@ async def get_asset_thumbnail(
     key = asset_thumb_key(asset_id, size)
 
     async def filler():
-        cached = await cache.fill_http(
+        return await cache.fill_http(
             key, client, f"/api/assets/{asset_id}/thumbnail", {"size": size}
         )
-        if cached.size_bytes > _MAX_THUMB_BYTES:
-            body, ctype = _recompress_if_huge(cached.path.read_bytes(), cached.content_type)
-            if len(body) < cached.size_bytes:
-                cached = cache.store(key, body, ctype)
-        return cached
 
     try:
         cached = await cache.get_or_fill(key, filler)
@@ -128,16 +91,21 @@ async def get_asset_thumbnail(
 @router.get("/assets/{asset_id}/original")
 async def get_asset_original(
     asset_id: str,
+    request: Request,
     client: httpx.AsyncClient = Depends(get_client),
     token: TokenRecord = Depends(require_token),
+    cache: MediaCache = Depends(get_media_cache),
 ):
     validate_uuid(asset_id, "asset_id")
     await ensure_asset_in_scope(client, asset_id, token)
     try:
-        req = client.build_request("GET", f"/api/assets/{asset_id}/original")
-        response = await client.send(req, stream=True)
-        response.raise_for_status()
-        return stream_upstream(response, headers={"Cache-Control": "private, max-age=3600"})
+        return await cache.stream_or_cached(
+            asset_original_key(asset_id),
+            request,
+            client,
+            f"/api/assets/{asset_id}/original",
+            cache_control="private, max-age=86400",
+        )
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail="Asset not found")
 
@@ -145,34 +113,28 @@ async def get_asset_original(
 @router.get("/assets/{asset_id}/download")
 async def download_asset(
     asset_id: str,
+    request: Request,
     client: httpx.AsyncClient = Depends(get_client),
     token: TokenRecord = Depends(require_token),
+    cache: MediaCache = Depends(get_media_cache),
 ):
     validate_uuid(asset_id, "asset_id")
     await ensure_asset_in_scope(client, asset_id, token)
     try:
         meta_resp = await client.get(f"/api/assets/{asset_id}")
         meta_resp.raise_for_status()
-        if meta_resp.json().get("type") == "VIDEO":
+        meta = meta_resp.json()
+        if meta.get("type") == "VIDEO":
             raise HTTPException(status_code=403, detail="Video downloads are disabled")
 
-        req = client.build_request("GET", f"/api/assets/{asset_id}/original")
-        response = await client.send(req, stream=True)
-        response.raise_for_status()
-
-        filename = None
-        cd = response.headers.get("content-disposition")
-        if cd and "filename=" in cd:
-            filename = cd.split("filename=")[-1].strip('"')
-        if not filename:
-            filename = f"{asset_id}.bin"
-
-        return stream_upstream(
-            response,
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Cache-Control": "private, max-age=3600",
-            },
+        filename = (meta.get("originalFileName") or f"{asset_id}.bin").replace('"', "")
+        return await cache.stream_or_cached(
+            asset_original_key(asset_id),
+            request,
+            client,
+            f"/api/assets/{asset_id}/original",
+            cache_control="private, max-age=86400",
+            extra_headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail="Asset not found")

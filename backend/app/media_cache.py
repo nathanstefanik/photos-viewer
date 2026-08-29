@@ -1,8 +1,9 @@
-"""Size-capped on-disk cache for Immich thumbnails and person faces.
+"""Size-capped on-disk cache for Immich previews, originals, and person faces.
 
 Authorization is the caller's job: this store is keyed by asset/person id, not by
 token. Scope checks must run before lookup or fill. Bytes live as files under
-`root`; a sibling SQLite index tracks size and LRU order.
+`root`; a sibling SQLite index tracks size and LRU order. Immich bytes are stored
+as-is — never recompressed.
 """
 
 from __future__ import annotations
@@ -19,7 +20,9 @@ from typing import AsyncIterator, Optional
 
 import httpx
 from fastapi import Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
+
+from .proxy import stream_upstream
 
 _CHUNK = 65536
 _EVICT_WATERMARK = 0.9
@@ -41,14 +44,26 @@ def person_thumb_key(person_id: str) -> str:
     return f"p:{person_id}"
 
 
-def as_response(cached: CachedMedia, request: Request, cache_control: str) -> Response:
+def asset_original_key(asset_id: str) -> str:
+    return f"o:{asset_id}"
+
+
+def as_response(
+    cached: CachedMedia,
+    request: Request,
+    cache_control: str,
+    extra_headers: Optional[dict] = None,
+) -> Response:
     etag = f'"{cached.size_bytes:x}-{int(cached.mtime)}"'
+    headers = {"Cache-Control": cache_control, "ETag": etag}
+    if extra_headers:
+        headers.update(extra_headers)
     if request.headers.get("if-none-match") == etag:
-        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": cache_control})
+        return Response(status_code=304, headers=headers)
     return FileResponse(
         cached.path,
         media_type=cached.content_type,
-        headers={"Cache-Control": cache_control, "ETag": etag},
+        headers=headers,
     )
 
 
@@ -60,6 +75,7 @@ class MediaCache:
         self._lock = Lock()
         self._inflight: dict[str, asyncio.Lock] = {}
         self._inflight_guard = asyncio.Lock()
+        self._fills: dict[str, asyncio.Event] = {}
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
@@ -95,6 +111,8 @@ class MediaCache:
             return self.root / "a" / asset_id[:2] / f"{asset_id}.{size}"
         if kind == "p":
             return self.root / "p" / rest[:2] / rest
+        if kind == "o":
+            return self.root / "o" / rest[:2] / rest
         raise ValueError(f"unknown cache key: {key}")
 
     def lookup(self, key: str) -> Optional[CachedMedia]:
@@ -230,3 +248,103 @@ class MediaCache:
             )
         finally:
             await response.aclose()
+
+    async def stream_or_cached(
+        self,
+        key: str,
+        request: Request,
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        cache_control: str,
+        extra_headers: Optional[dict] = None,
+    ) -> Response:
+        """Cache hit → FileResponse. Miss → stream Immich to the client and to disk.
+
+        Videos skip the cache (range playback, large files) and pass through.
+        Followers wait until the leader finishes writing so they don't stampede Immich.
+        """
+        extra = dict(extra_headers or {})
+        hit = self.lookup(key)
+        if hit:
+            return as_response(hit, request, cache_control, extra)
+
+        async with self._inflight_guard:
+            done = self._fills.get(key)
+            leader = done is None
+            if leader:
+                done = asyncio.Event()
+                self._fills[key] = done
+
+        if not leader:
+            await done.wait()
+            hit = self.lookup(key)
+            if hit:
+                return as_response(hit, request, cache_control, extra)
+            return await self._stream_miss(key, client, url, cache_control, extra, None)
+
+        return await self._stream_miss(key, client, url, cache_control, extra, done)
+
+    async def _stream_miss(
+        self,
+        key: str,
+        client: httpx.AsyncClient,
+        url: str,
+        cache_control: str,
+        extra: dict,
+        done: Optional[asyncio.Event],
+    ) -> Response:
+        req = client.build_request("GET", url)
+        response = await client.send(req, stream=True)
+        try:
+            response.raise_for_status()
+        except Exception:
+            await response.aclose()
+            self._finish_fill(key, done)
+            raise
+
+        content_type = (response.headers.get("content-type") or "").split(";")[0].strip()
+        headers = {"Cache-Control": cache_control, **extra}
+        if content_type.startswith("video/"):
+            self._finish_fill(key, done)
+            return stream_upstream(response, default_media_type=content_type, headers=headers)
+        if response.headers.get("content-length"):
+            headers["Content-Length"] = response.headers["content-length"]
+        return StreamingResponse(
+            self._tee_and_cache(key, response, content_type or "application/octet-stream", done),
+            media_type=content_type or "application/octet-stream",
+            headers=headers,
+        )
+
+    def _finish_fill(self, key: str, done: Optional[asyncio.Event]) -> None:
+        if done is None:
+            return
+        done.set()
+        if self._fills.get(key) is done:
+            self._fills.pop(key, None)
+
+    async def _tee_and_cache(
+        self,
+        key: str,
+        response: httpx.Response,
+        content_type: str,
+        done: Optional[asyncio.Event],
+    ) -> AsyncIterator[bytes]:
+        path = self._path_for(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f".{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+        committed = False
+        try:
+            with open(tmp, "wb") as fh:
+                async for chunk in response.aiter_bytes(chunk_size=_CHUNK):
+                    fh.write(chunk)
+                    yield chunk
+            os.replace(tmp, path)
+            self._commit_file(key, path, content_type)
+            committed = True
+        finally:
+            await response.aclose()
+            if not committed:
+                with suppress(OSError):
+                    tmp.unlink(missing_ok=True)
+            self._finish_fill(key, done)

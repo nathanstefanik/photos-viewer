@@ -317,32 +317,28 @@ const Lightbox = {
         this._fullResRequested = false;
         this._fullResLoaded = false;
         this._fullResFailed = false;
+        this._fullResDecodedUrl = null;
 
-        const thumbnailUrl = API.getThumbnailUrl(asset.id, 'thumbnail');
         const previewUrl = API.getThumbnailUrl(asset.id, 'preview');
-
-        img.src = thumbnailUrl;
+        img.fetchPriority = 'high';
+        img.src = previewUrl;
         img.onload = () => {
             if (generation !== this.mediaGeneration) return;
             this.hideLoading();
             // Layout/exif are only reliably known once the image has actually
             // rendered — refresh the zoom ceiling and chip now that they are.
             this._updateZoomChip();
+            this._swapFullResIfReady();
         };
         img.onerror = () => {
             if (generation !== this.mediaGeneration) return;
             this.hideLoading();
-            console.error('Failed to load thumbnail');
+            console.error('Failed to load preview');
         };
 
-        // Progressive upgrade: show thumbnail first, swap to preview when ready
-        const previewImg = new Image();
-        previewImg.src = previewUrl;
-        previewImg.onload = () => {
-            if (this.currentAsset?.id === asset.id && generation === this.mediaGeneration) {
-                img.src = previewUrl;
-            }
-        };
+        // Start the original immediately so Fit-to-screen is pixel-true once
+        // it lands; preview covers the wait without a tiny-thumbnail flash.
+        this._prefetchFullRes();
     },
 
     // ----- Zoom & pan -----
@@ -401,11 +397,11 @@ const Lightbox = {
         return this._getMaxZoom() > this.MIN_ZOOM + 0.02;
     },
 
-    /** Lazily fetch the full-resolution original and hot-swap it in once decoded, so
-     *  zooming past the preview actually reveals detail instead of magnifying mush.
-     *  Safe to call repeatedly/speculatively — only the first call per asset does
-     *  anything. Silently gives up (and caps zoom to the preview) if the browser
-     *  can't decode the original, e.g. HEIC/RAW sources. */
+    /** Fetch the full-resolution original and hot-swap it in once decoded, so Fit
+     *  and zoom show real pixels instead of a magnified preview. Starts as soon as
+     *  the lightbox opens. Safe to call repeatedly — only the first call per asset
+     *  does anything. Silently gives up (and caps zoom to the preview) if the
+     *  browser can't decode the original, e.g. HEIC/RAW sources. */
     _prefetchFullRes() {
         const asset = this.currentAsset;
         if (!asset || asset.type === 'VIDEO' || this._fullResRequested) return;
@@ -427,16 +423,8 @@ const Lightbox = {
             .decode()
             .then(() => {
                 if (generation !== this.mediaGeneration || this.currentAsset?.id !== assetId) return;
-                // Pin the box to its current (preview-derived) Fit size before swapping.
-                // Without this, a preview that already fits the viewport at native size
-                // would jump when replaced by a much larger original that gets scaled
-                // down differently by the max-width/max-height auto-sizing — the pin
-                // makes the swap provably seamless regardless of monitor size.
-                img.style.width = `${img.offsetWidth}px`;
-                img.style.height = `${img.offsetHeight}px`;
-                img.src = originalUrl;
-                this._fullResLoaded = true;
-                this._updateZoomChip();
+                this._fullResDecodedUrl = originalUrl;
+                this._swapFullResIfReady();
             })
             .catch(() => {
                 if (generation !== this.mediaGeneration || this.currentAsset?.id !== assetId) return;
@@ -448,6 +436,24 @@ const Lightbox = {
                 this._zoomAt(this.zoom.scale, rect.left + rect.width / 2, rect.top + rect.height / 2);
             });
 
+        this._updateZoomChip();
+    },
+
+    /** Swap in the decoded original once the preview has a real layout box.
+     *  Swapping earlier would pin width/height at 0 and collapse the image. */
+    _swapFullResIfReady() {
+        if (this._fullResLoaded || !this._fullResDecodedUrl) return;
+        const img = this.elements.image;
+        if (!img.offsetWidth) return;
+        // Pin the box to its current (preview-derived) Fit size before swapping.
+        // Without this, a preview that already fits the viewport at native size
+        // would jump when replaced by a much larger original that gets scaled
+        // down differently by the max-width/max-height auto-sizing — the pin
+        // makes the swap provably seamless regardless of monitor size.
+        img.style.width = `${img.offsetWidth}px`;
+        img.style.height = `${img.offsetHeight}px`;
+        img.src = this._fullResDecodedUrl;
+        this._fullResLoaded = true;
         this._updateZoomChip();
     },
 
