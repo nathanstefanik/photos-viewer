@@ -2,7 +2,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from app.cache import cache_manager
+from app.memory_cache import cache_manager
 from app.scope import album_ids_for_search, ensure_asset_in_scope
 from app.tokens import TokenRecord
 

@@ -10,11 +10,11 @@ import json
 import time
 from typing import Optional
 
-from fastapi import Request, HTTPException
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from .config import settings
-from .tokens import TokenStore, TokenRecord
+from .tokens import TokenRecord, TokenStore
 
 SESSION_COOKIE = "viewer_session"
 SESSION_MAX_AGE = 60 * 60 * 24 * 7  # 7 days
@@ -139,3 +139,28 @@ def unauthenticated_response(request: Request):
     if request.url.path.startswith("/api/"):
         return JSONResponse({"detail": "Authentication required"}, status_code=401)
     return RedirectResponse(url="/gate", status_code=302)
+
+
+# Allowlist only. A previous /api|/|/index check left /openapi.json (and any
+# future non-api route) reachable with no session.
+_PUBLIC_PATHS = {
+    "/api/health",
+    "/gate",
+    "/immich-logo.svg",
+    "/favicon.ico",
+    "/favicon-32.png",
+}
+_PUBLIC_PREFIXES = ("/t/", "/css/", "/js/", "/fonts/")
+
+
+def install_auth_gate(app: FastAPI) -> None:
+    """Reject unauthenticated requests except for the public allowlist."""
+
+    @app.middleware("http")
+    async def auth_gate(request: Request, call_next):
+        path = request.url.path
+        if path in _PUBLIC_PATHS or path.startswith(_PUBLIC_PREFIXES):
+            return await call_next(request)
+        if not resolve_token(request):
+            return unauthenticated_response(request)
+        return await call_next(request)

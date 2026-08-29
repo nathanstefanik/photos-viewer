@@ -78,9 +78,20 @@ docker compose exec viewer python cli.py revoke <id>
 ## Layout
 
 ```
-backend/     FastAPI proxy, auth, token CLI
-frontend/    static SPA (Immich-styled timeline)
-Dockerfile   single image: API + static
+backend/
+  app/
+    main.py           app wiring (lifespan, middleware, mounts)
+    auth.py           session cookies + auth gate
+    tokens.py         access-code store
+    social_store.py   reactions/comments store
+    memory_cache.py   in-memory TTL cache
+    media_cache.py    on-disk Immich media cache
+    scope.py          album-scope enforcement
+    routers/          HTTP handlers (access, assets, people, search, social, activity)
+  cli.py              issue / revoke / list access codes
+  tests/
+frontend/             static SPA (css/, js/, fonts/) — no bundler
+Dockerfile            single image: API + frontend copied to static/
 ```
 
 Upstream git remote: `upstream` → JimmyeJones/Immich-View-Only-Web-Interface.

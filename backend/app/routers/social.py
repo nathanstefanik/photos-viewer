@@ -12,7 +12,7 @@ from ..auth import require_token
 from ..deps import ensure_guest_id, get_client, get_social, resolve_person_name, validate_uuid
 from ..schemas import CommentPayload, IdentityPayload, ReactionPayload
 from ..scope import ensure_asset_in_scope, person_ids_in_scope
-from ..social import SocialStore, default_display_name, normalize_display_name
+from ..social_store import SocialStore, default_display_name, normalize_display_name
 from ..tokens import TokenRecord
 
 router = APIRouter(prefix="/api")

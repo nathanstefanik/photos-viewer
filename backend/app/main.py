@@ -12,20 +12,18 @@ import asyncio
 from contextlib import asynccontextmanager, suppress
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .auth import resolve_token, unauthenticated_response
-from .cache import cache_manager
+from .auth import install_auth_gate
 from .config import settings
 from .deps import STATIC_DIR
 from .media_cache import MediaCache
-from .routers import activity as activity_router
-from .routers import assets, pages, people, search
-from .routers import social as social_router
+from .memory_cache import cache_manager
+from .routers import access, activity, assets, people, search, social
 from .security_headers import install_security_headers
-from .social import SocialStore
+from .social_store import SocialStore
 from .tokens import TokenStore
 
 CACHE_CLEANUP_INTERVAL_SECONDS = 600
@@ -93,35 +91,14 @@ app.add_middleware(
 )
 
 install_security_headers(app)
+install_auth_gate(app)
 
-_PUBLIC_PATHS = {
-    "/api/health",
-    "/gate",
-    "/immich-logo.svg",
-    "/favicon.ico",
-    "/favicon-32.png",
-}
-_PUBLIC_PREFIXES = ("/t/", "/css/", "/js/", "/fonts/")
-
-
-@app.middleware("http")
-async def auth_gate(request: Request, call_next):
-    # Allowlist only. A previous /api|/|/index check left /openapi.json (and
-    # any future non-api route) reachable with no session.
-    path = request.url.path
-    if path in _PUBLIC_PATHS or path.startswith(_PUBLIC_PREFIXES):
-        return await call_next(request)
-    if not resolve_token(request):
-        return unauthenticated_response(request)
-    return await call_next(request)
-
-
-app.include_router(pages.router)
+app.include_router(access.router)
 app.include_router(people.router)
 app.include_router(search.router)
 app.include_router(assets.router)
-app.include_router(social_router.router)
-app.include_router(activity_router.router)
+app.include_router(social.router)
+app.include_router(activity.router)
 
 if (STATIC_DIR / "css").is_dir():
     app.mount("/css", StaticFiles(directory=str(STATIC_DIR / "css")), name="css")

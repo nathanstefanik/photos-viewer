@@ -8,7 +8,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..auth import require_token
-from ..cache import cache_manager
+from ..memory_cache import cache_manager
 from ..config import settings
 from ..deps import get_client
 from ..schemas import PaginatedResponse, SearchFilters
