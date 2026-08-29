@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     cache_ttl_people: int = 300
     cache_ttl_suggestions: int = 600
 
+    # Thumbnails/previews persist under ./data so they survive image rebuilds.
+    media_cache_dir: str = "/data/media-cache"
+    media_cache_max_bytes: int = 2 * 1024 * 1024 * 1024
+
     @field_validator("cors_origins", "trusted_proxy_ips", mode="before")
     @classmethod
     def parse_str_list(cls, v):
