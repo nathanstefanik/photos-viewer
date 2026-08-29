@@ -913,6 +913,11 @@ html[data-view="large"] .gallery-item {
   transition: transform 0.2s ease, opacity 0.2s ease;
 }
 
+html[data-view="comfortable"] .gallery-item img,
+html[data-view="large"] .gallery-item img {
+  object-fit: contain;
+}
+
 .gallery-item img.loading {
   opacity: 0.35;
 }

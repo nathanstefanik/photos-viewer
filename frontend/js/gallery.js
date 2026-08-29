@@ -236,10 +236,6 @@ const Gallery = {
         }
     },
 
-    thumbSize() {
-        return document.documentElement.dataset.view === 'large' ? 'preview' : 'thumbnail';
-    },
-
     createGalleryItem(asset, index) {
         const item = document.createElement('div');
         item.className = 'gallery-item';
@@ -251,8 +247,11 @@ const Gallery = {
         const img = document.createElement('img');
         img.className = 'loading';
         img.alt = asset.originalFileName || 'Photo';
-        img.loading = 'lazy';
-        img.src = API.getThumbnailUrl(asset.id, this.thumbSize());
+        img.decoding = 'async';
+        // First screen eager so the opening row is sharp without waiting on lazy.
+        img.loading = index < 12 ? 'eager' : 'lazy';
+        if (index < 8) img.fetchPriority = 'high';
+        img.src = API.getThumbnailUrl(asset.id, 'preview');
         img.onload = () => img.classList.remove('loading');
         img.onerror = () => {
             img.src =

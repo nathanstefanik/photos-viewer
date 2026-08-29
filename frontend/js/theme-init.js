@@ -10,7 +10,6 @@ try {
     document.documentElement.classList.remove('dark');
   }
   const view = localStorage.getItem('viewMode');
-  if (view === 'dense' || view === 'comfortable' || view === 'large') {
-    document.documentElement.dataset.view = view;
-  }
+  document.documentElement.dataset.view =
+    view === 'dense' || view === 'comfortable' || view === 'large' ? view : 'large';
 } catch {}

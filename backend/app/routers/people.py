@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..auth import require_token
 from ..cache import cache_manager
 from ..config import settings
-from ..deps import get_client, validate_uuid
+from ..deps import get_client, get_media_cache, validate_uuid
+from ..media_cache import MediaCache, as_response, person_thumb_key
 from ..scope import album_ids_for_search, ensure_person_in_scope, person_ids_in_scope
 from ..tokens import TokenRecord
 
@@ -90,18 +90,20 @@ async def get_person(
 @router.get("/people/{person_id}/thumbnail")
 async def get_person_thumbnail(
     person_id: str,
+    request: Request,
     client: httpx.AsyncClient = Depends(get_client),
     token: TokenRecord = Depends(require_token),
+    cache: MediaCache = Depends(get_media_cache),
 ):
     validate_uuid(person_id, "person_id")
     await ensure_person_in_scope(client, person_id, token)
+    key = person_thumb_key(person_id)
+
+    async def filler():
+        return await cache.fill_http(key, client, f"/api/people/{person_id}/thumbnail")
+
     try:
-        response = await client.get(f"/api/people/{person_id}/thumbnail")
-        response.raise_for_status()
-        return StreamingResponse(
-            iter([response.content]),
-            media_type=response.headers.get("content-type", "image/jpeg"),
-            headers={"Cache-Control": "private, max-age=3600"},
-        )
+        cached = await cache.get_or_fill(key, filler)
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail="Thumbnail not found")
+    return as_response(cached, request, "private, max-age=3600")

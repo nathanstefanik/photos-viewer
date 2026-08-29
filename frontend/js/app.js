@@ -8,7 +8,7 @@ const App = {
         comfortable: 'Comfortable',
         large: 'Large',
     },
-    DEFAULT_VIEW: 'comfortable',
+    DEFAULT_VIEW: 'large',
 
     async init() {
         this.initTheme();
@@ -35,7 +35,6 @@ const App = {
 
         const apply = (mode) => {
             const next = this.VIEW_MODES[mode] ? mode : this.DEFAULT_VIEW;
-            const prev = root.dataset.view;
             root.dataset.view = next;
             buttons.forEach((btn) => {
                 btn.setAttribute('aria-pressed', String(btn.dataset.view === next));
@@ -44,13 +43,6 @@ const App = {
                 label.textContent = this.VIEW_MODES[next];
             }
             localStorage.setItem('viewMode', next);
-
-            // Large mode swaps thumbnail ↔ preview URLs; re-render when crossing that boundary
-            if (prev && prev !== next && State.getProperty('assets')?.length) {
-                if (prev === 'large' || next === 'large') {
-                    Gallery.render();
-                }
-            }
         };
 
         buttons.forEach((btn) => {

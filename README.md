@@ -39,6 +39,10 @@ Copy `example.env` → `.env` (never commit secrets):
   (or CIDR range); without it, `X-Forwarded-For` is just a header anyone
   connecting directly can forge to dodge the rate limit. Leave both unset if
   you're not fronting this with a proxy.
+- `MEDIA_CACHE_DIR` / `MEDIA_CACHE_MAX_BYTES` — on-disk cache for previews,
+  originals, and person faces (default `/data/media-cache`, 8 GiB LRU cap).
+  Authorization is still checked on every request; this only skips re-fetching
+  the same bytes from Immich. Bytes are stored as-is, never recompressed.
 
 ## Deploy
 
@@ -50,7 +54,9 @@ docker compose up -d --build
 
 App listens on `:8080` by default. Put a TLS-terminating reverse proxy in front for the public hostname.
 
-Access codes, comments, and reactions live in `./data/` (bind-mounted to `/data` in the container). That directory survives image rebuilds; do not delete it when redeploying.
+Access codes, comments, reactions, and the media cache live in `./data/`
+(bind-mounted to `/data` in the container). That directory survives image
+rebuilds; do not delete it when redeploying.
 
 If you previously used the named Docker volume and need to keep existing data:
 
