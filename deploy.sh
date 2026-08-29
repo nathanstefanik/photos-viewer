@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Deploy photos-viewer to CT 107 via the PVE host.
+# Deploy photos-viewer to a Proxmox LXC via the PVE host.
 #
-# Mac tree → tar → scp pve → pct push 107 → extract → compose up.
+# Mac tree → tar → scp → pct push → extract → compose up.
 # CT is not SSH-reachable from this Mac and has no git checkout.
 # Leaves the CT's .env alone; never `docker compose down -v`.
 #
 # Usage: ./deploy.sh [--no-sync] [--no-build] [--dry-run]
-#        ./deploy.sh --host pve --ctid 107 --path /opt/photos-viewer
+#        ./deploy.sh --host pve --ctid 100 --path /opt/photos-viewer
+# Real host/CTID live in deploy.conf (gitignored); see deploy.conf.example.
 
 set -euo pipefail
 
@@ -34,10 +35,9 @@ TAR_EXCLUDES=(
   backend/tests
 )
 
-# Defaults match this homelab. Override via
-# deploy.conf (gitignored) or CLI flags.
+# Placeholders only — override via deploy.conf (gitignored) or CLI flags.
 PVE_HOST=pve
-CTID=107
+CTID=100
 DEPLOY_PATH=/opt/photos-viewer
 
 if [[ -f "$CONF_FILE" ]]; then
@@ -56,7 +56,7 @@ Usage:
   ./deploy.sh --no-build   sync files, then compose up -d --wait (no image rebuild)
   ./deploy.sh --no-sync    rebuild/restart without copying this tree
   ./deploy.sh --dry-run    print commands without running them
-  ./deploy.sh --host pve --ctid 107 --path /opt/photos-viewer
+  ./deploy.sh --host pve --ctid 100 --path /opt/photos-viewer
 EOF
 }
 

@@ -2,10 +2,11 @@
 # Sourced as a bash script. Defaults already match this homelab.
 
 # SSH host alias or LAN IP of the Proxmox VE node (not the CT).
+# Put real values in deploy.conf (gitignored); these are placeholders only.
 PVE_HOST=pve
 
 # LXC VMID running the viewer.
-CTID=107
+CTID=100
 
 # Absolute path to the app tree inside that CT.
 DEPLOY_PATH=/opt/photos-viewer
