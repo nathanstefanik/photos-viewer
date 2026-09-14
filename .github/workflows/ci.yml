@@ -29,6 +29,13 @@ jobs:
           TOKENS_DB_PATH: /tmp/ci-tokens.db
         run: pytest
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test frontend (node)
+        run: node --test frontend/tests/*.test.cjs
+
   docker-build:
     runs-on: ubuntu-latest
     steps:

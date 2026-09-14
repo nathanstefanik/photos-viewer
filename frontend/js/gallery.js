@@ -18,6 +18,10 @@ const Gallery = {
     },
 
     observer: null,
+    imageObserver: null,
+    _visibleImages: null,
+    _gridLoadingPaused: false,
+    IMAGE_MARGIN: '200px',
 
     init() {
         this.elements.gallery = document.getElementById('timeline');
@@ -36,6 +40,10 @@ const Gallery = {
         this.elements.retryBtn?.addEventListener('click', () => this.reload());
 
         this.setupInfiniteScroll();
+
+        document.querySelectorAll('.view-btn').forEach((btn) => {
+            btn.addEventListener('click', () => this.refreshImageSources());
+        });
 
         State.subscribe((newState, oldState) => {
             this.onStateChange(newState, oldState);
@@ -76,6 +84,87 @@ const Gallery = {
         }
 
         this.updateActiveFilters(newState);
+
+        if (newState.lightboxAssetId !== oldState.lightboxAssetId) {
+            if (newState.lightboxAssetId) {
+                this.pauseImageLoading();
+            } else {
+                this.resumeImageLoading();
+            }
+        }
+    },
+
+    /** Observe tile images individually so sources are assigned only near the
+     *  viewport, with a short margin so scrolling stays ahead of the fetch. */
+    setupImageLoading() {
+        this._visibleImages = new Set();
+        this.imageObserver = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        this._visibleImages.add(entry.target);
+                        this.loadGalleryImage(entry.target);
+                    } else {
+                        this._visibleImages.delete(entry.target);
+                    }
+                });
+            },
+            { rootMargin: this.IMAGE_MARGIN },
+        );
+    },
+
+    observeGalleryImage(img) {
+        if (this.imageObserver) this.imageObserver.observe(img);
+    },
+
+    /** Dense/comfortable grids are small enough for Immich's thumbnail;
+     *  large mode uses its bigger preview. Never the original. */
+    thumbnailSize() {
+        return document.documentElement.dataset.view === 'large' ? 'preview' : 'thumbnail';
+    },
+
+    loadGalleryImage(img) {
+        if (this._gridLoadingPaused) return;
+        const desired = img.dataset.src;
+        if (!desired || img.getAttribute('src') === desired) return;
+        delete img.dataset.loaded;
+        img.src = desired;
+    },
+
+    /** Re-point every tile after a density change; only visible tiles refetch. */
+    refreshImageSources() {
+        const size = this.thumbnailSize();
+        const gallery = this.elements.gallery;
+        if (!gallery) return;
+
+        gallery.querySelectorAll('.gallery-item img').forEach((img) => {
+            if (!img.dataset.assetId) return;
+            const nextSrc = API.getThumbnailUrl(img.dataset.assetId, size);
+            if (nextSrc === img.dataset.src) return;
+
+            img.dataset.src = nextSrc;
+            if (this._visibleImages?.has(img)) this.loadGalleryImage(img);
+        });
+    },
+
+    /** While a photo is open, give it the connection: drop unfinished tile
+     *  requests and leave already-rendered tiles untouched. */
+    pauseImageLoading() {
+        this._gridLoadingPaused = true;
+        const gallery = this.elements.gallery;
+        if (!gallery) return;
+
+        gallery.querySelectorAll('.gallery-item img').forEach((img) => {
+            if (img.dataset.loaded === '1') return;
+            if (img.getAttribute('src')) img.removeAttribute('src');
+        });
+    },
+
+    resumeImageLoading() {
+        this._gridLoadingPaused = false;
+        if (!this._visibleImages) return;
+
+        this._visibleImages.forEach((img) => this.loadGalleryImage(img));
     },
 
     async load() {
@@ -149,6 +238,7 @@ const Gallery = {
 
         this.hideEmpty();
         this.hideError();
+        this.setupImageLoading();
 
         const fragment = document.createDocumentFragment();
         let currentKey = null;
@@ -247,17 +337,21 @@ const Gallery = {
         const img = document.createElement('img');
         img.className = 'loading';
         img.alt = asset.originalFileName || 'Photo';
+        img.dataset.assetId = asset.id;
+        img.dataset.src = API.getThumbnailUrl(asset.id, this.thumbnailSize());
         img.decoding = 'async';
-        // First screen eager so the opening row is sharp without waiting on lazy.
-        img.loading = index < 12 ? 'eager' : 'lazy';
-        if (index < 8) img.fetchPriority = 'high';
-        img.src = API.getThumbnailUrl(asset.id, 'preview');
-        img.onload = () => img.classList.remove('loading');
+        // Lower priority than a selected original so opening a photo wins the connection.
+        img.fetchPriority = 'low';
+        img.onload = () => {
+            img.dataset.loaded = '1';
+            img.classList.remove('loading');
+        };
         img.onerror = () => {
             img.src =
                 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23ccc" width="100" height="100"/><text x="50" y="55" text-anchor="middle" fill="%23999" font-size="12">Error</text></svg>';
         };
         item.appendChild(img);
+        this.observeGalleryImage(img);
 
         if (asset.type === 'VIDEO') {
             const indicator = document.createElement('div');
@@ -438,6 +532,15 @@ const Gallery = {
     },
 
     clearGallery() {
+        this.elements.gallery.querySelectorAll('.gallery-item img').forEach((img) => {
+            if (img.dataset.loaded === '1') return;
+            img.removeAttribute('src');
+        });
+
+        this.imageObserver?.disconnect();
+        this.imageObserver = null;
+        this._visibleImages = new Set();
+
         this.elements.gallery.querySelectorAll('.day-group').forEach((el) => el.remove());
     },
 
