@@ -127,6 +127,7 @@ const Gallery = {
         if (this._gridLoadingPaused) return;
         const desired = img.dataset.src;
         if (!desired || img.getAttribute('src') === desired) return;
+        delete img.dataset.loaded;
         img.src = desired;
     },
 

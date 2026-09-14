@@ -44,6 +44,31 @@ Copy `example.env` → `.env` (never commit secrets):
   Authorization is still checked on every request; this only skips re-fetching
   the same bytes from Immich. Bytes are stored as-is, never recompressed.
 
+## Photo quality and loading
+
+Opening a photo and downloading it use the original file from Immich, byte for
+byte. The viewer does not resize, recompress, sharpen, or strip the color profile
+or metadata from those files. It waits until the original is downloaded and decoded
+before revealing the photo, then scales it in the browser to fit the screen.
+There is no preview-to-original quality transition. If a browser cannot decode the
+original format, the viewer shows an error and keeps the original download available.
+
+The gallery uses Immich's existing smaller thumbnails in Dense and Comfortable
+modes, and its larger previews in Large mode. Only images near the viewport are
+requested. Grid loading pauses while a photo is open, and unfinished original
+requests are cancelled when navigating or closing. No speculative originals are
+downloaded. Immich settings and the original/download endpoints are unchanged.
+
+The existing private browser cache and on-disk server cache avoid repeat work.
+A first visit to an uncached original still transfers the full file; speed on a
+poor connection depends on the exported JPEG's size. These changes reduce competing
+requests and unnecessary waiting, rather than reducing original quality.
+
+For development checks, install the Python dependencies from
+`backend/requirements-dev.txt` and run `pytest` and `ruff check .`. Run frontend
+behavioral tests with Node 22 or newer: `node --test frontend/tests/*.test.cjs`.
+The frontend remains static JavaScript without a bundler or runtime npm dependencies.
+
 ## Deploy
 
 Build and run with Docker Compose on the host that can reach Immich:
