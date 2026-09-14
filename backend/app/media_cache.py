@@ -283,7 +283,13 @@ class MediaCache:
                 return as_response(hit, request, cache_control, extra)
             return await self._stream_miss(key, client, url, cache_control, extra, None)
 
-        return await self._stream_miss(key, client, url, cache_control, extra, done)
+        try:
+            return await self._stream_miss(key, client, url, cache_control, extra, done)
+        except BaseException:
+            # Startup failures (including cancellation) must release waiting requests.
+            # Once streaming starts, _tee_and_cache owns fill cleanup.
+            self._finish_fill(key, done)
+            raise
 
     async def _stream_miss(
         self,
