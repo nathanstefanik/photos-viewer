@@ -202,19 +202,20 @@ const Lightbox = {
 
     async next() {
         if (this.currentIndex < 0) return;
-        const assets = State.getProperty('assets');
+        let assets = State.getProperty('assets');
 
         if (this.currentIndex >= assets.length - 1) {
-            if (State.getProperty('hasMore')) {
-                await Gallery.loadMore();
-            }
-            return;
+            if (!State.getProperty('hasMore')) return;
+            await Gallery.loadMore();
+            assets = State.getProperty('assets');
         }
 
         const nextAsset = assets[this.currentIndex + 1];
         if (nextAsset) {
             await this.open(nextAsset, this.currentIndex + 1);
+            return;
         }
+        this.updateNavigation();
     },
 
     displayMedia(asset) {
