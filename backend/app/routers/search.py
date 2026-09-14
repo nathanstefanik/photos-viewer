@@ -49,9 +49,7 @@ async def search_assets(
     scoped_albums = album_ids_for_search(token)
     if scoped_albums is not None:
         if not scoped_albums:
-            return PaginatedResponse(
-                items=[], total=0, page=filters.page, size=filters.size, hasMore=False
-            )
+            return PaginatedResponse(items=[], total=0, page=filters.page, size=filters.size, hasMore=False)
         search_payload["albumIds"] = scoped_albums
 
     query = (filters.query or "").strip()

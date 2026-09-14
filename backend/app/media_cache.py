@@ -99,9 +99,7 @@ class MediaCache:
                 )
                 """
             )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_entries_lru ON entries(last_access)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_entries_lru ON entries(last_access)")
             conn.commit()
 
     def _path_for(self, key: str) -> Path:

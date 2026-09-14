@@ -22,6 +22,7 @@ async def test_original_can_be_retried_after_upstream_failure(tmp_path, failure)
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(upstream), base_url="http://immich.test"
     ) as client:
+
         async def fetch():
             return await cache.stream_or_cached(
                 key, request, client, "/api/assets/asset-1/original", cache_control="private"

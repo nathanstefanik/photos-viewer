@@ -111,9 +111,7 @@ def test_legacy_plain_sha256_hash_upgrades_on_redeem(store):
     assert looked_up.id == "legacyid"
 
     with store._connect() as conn:
-        row = conn.execute(
-            "SELECT token_hash FROM tokens WHERE id = ?", ("legacyid",)
-        ).fetchone()
+        row = conn.execute("SELECT token_hash FROM tokens WHERE id = ?", ("legacyid",)).fetchone()
     assert row["token_hash"] == hash_token(raw, store.secret)
     assert row["token_hash"] != legacy_hash
 

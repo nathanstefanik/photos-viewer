@@ -14,9 +14,7 @@ class Settings(BaseSettings):
     port: int = 8000
     debug: bool = False
 
-    cors_origins: Annotated[List[str], NoDecode] = [
-        "http://127.0.0.1:8080"
-    ]
+    cors_origins: Annotated[List[str], NoDecode] = ["http://127.0.0.1:8080"]
     public_base_url: str = "http://127.0.0.1:8080"
 
     session_secret: str = ""

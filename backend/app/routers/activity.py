@@ -61,9 +61,9 @@ async def _recent_uploads(
 
     # Immich metadata search orders by capture date; createdAfter + local sort
     # approximates recent ingest. Deleted Immich assets never appear.
-    created_after = (
-        datetime.now(timezone.utc) - timedelta(days=_UPLOAD_LOOKBACK_DAYS)
-    ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    created_after = (datetime.now(timezone.utc) - timedelta(days=_UPLOAD_LOOKBACK_DAYS)).strftime(
+        "%Y-%m-%dT%H:%M:%S.000Z"
+    )
     payload: dict = {
         "page": 1,
         "size": min(max(limit, 1), 100),
@@ -122,16 +122,8 @@ async def list_activity(
     uploads = await _recent_uploads(client, token, limit)
 
     known = {asset["id"]: asset for asset in uploads}
-    needed = list(
-        {
-            row.asset_id
-            for row in (*comments, *reactions)
-            if row.asset_id not in known
-        }
-    )
-    resolved = await asyncio.gather(
-        *[_asset_if_visible(client, asset_id, token) for asset_id in needed]
-    )
+    needed = list({row.asset_id for row in (*comments, *reactions) if row.asset_id not in known})
+    resolved = await asyncio.gather(*[_asset_if_visible(client, asset_id, token) for asset_id in needed])
     for asset_id, asset in zip(needed, resolved):
         if asset:
             known[asset_id] = asset
