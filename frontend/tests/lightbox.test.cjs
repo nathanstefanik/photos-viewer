@@ -63,7 +63,7 @@ function makeImageElement(events) {
     };
 }
 
-function makeLightboxHarness({ metadata = {} } = {}) {
+function makeLightboxHarness() {
     const events = [];
     const requests = [];
     const decoders = [];
@@ -185,8 +185,6 @@ function makeLightboxHarness({ metadata = {} } = {}) {
     lightbox.updateMetadata = (asset) => {
         metadataUpdates.push(asset.id);
     };
-    Object.assign(metadata, { requests: metadataRequests, updates: metadataUpdates });
-
     return {
         decoders,
         elements,

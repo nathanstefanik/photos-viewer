@@ -88,8 +88,8 @@ assert upstream_original_requests == 1
 - [x] Run `python -m pytest`, `ruff check .`, `node --test frontend/tests/*.test.cjs`, and JavaScript syntax checks. Result: 96 Python tests pass (2 third-party deprecation warnings), Ruff clean, 18 Node tests pass, all `frontend/js/*.js` pass `node --check`.
 - [x] Launch a local fixture-backed browser page using real frontend files. Exercise grid/open/next/close, delayed originals and metadata, failed originals, large-mode switching, and downloads. Check original-only requests in the lightbox and decoded reveal. Record request/byte differences without claiming deployed speed gains.
 - [x] Document gallery/original behavior and the unavoidable full-file transfer on cold loads. Confirm no Immich settings changed and original routes remain byte-preserving.
-- [ ] Commit `TEST Verify original fidelity and image loading behavior` (and focused fixes if review finds issues).
-- [ ] Complete task and whole-branch reviews, resolve substantive findings, verify clean status, and push `t3code/fast-high-quality-image-loading` to origin with upstream tracking.
+- [x] Commit `TEST Verify original fidelity and image loading behavior` (and focused fixes if review finds issues).
+- [x] Complete task and whole-branch reviews, resolve substantive findings, verify clean status, and push `t3code/fast-high-quality-image-loading` to origin with upstream tracking. Review found one density-switch issue (a reloaded tile kept its `loaded` flag, so opening the lightbox would not cancel it) and it was fixed before the verification commit. Pushed; no merge or deploy.
 
 ## Progress and decisions
 

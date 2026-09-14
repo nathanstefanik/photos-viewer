@@ -438,8 +438,8 @@ const Lightbox = {
     },
 
     /** Native (1:1 device-pixel) zoom ceiling for the current asset — "100%" always
-     *  means one source pixel per device pixel, never a blown-up preview. Recomputed
-     *  live from current layout and decoded source dimensions, so it tracks resizes. */
+     *  means one source pixel per device pixel, never magnified past the decoded
+     *  original. Recomputed live from current layout and source dimensions. */
     _getMaxZoom() {
         const img = this.elements.image;
         const displayedWidth = img.offsetWidth;
@@ -455,7 +455,7 @@ const Lightbox = {
     },
 
     /** False when the asset is already displayed at/above native resolution — no
-     *  point offering zoom (and it'd otherwise just magnify a soft preview). */
+     *  point offering zoom (and it would otherwise magnify beyond the original). */
     _zoomAvailable() {
         return this._getMaxZoom() > this.MIN_ZOOM + 0.02;
     },

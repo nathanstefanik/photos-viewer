@@ -20,7 +20,6 @@ function makeHarness() {
     const requestedImages = [];
     const removedSources = [];
     const imageObservers = [];
-    const scrollObservers = [];
 
     class FakeClassList {
         constructor() {
@@ -144,8 +143,7 @@ function makeHarness() {
             this.options = options;
             this.observed = [];
             this.disconnected = false;
-            if (options?.rootMargin === '200px') imageObservers.push(this);
-            else scrollObservers.push(this);
+            imageObservers.push(this);
         }
 
         observe(element) {
@@ -236,13 +234,11 @@ function makeHarness() {
     gallery.elements = { ...gallery.elements, ...elements };
 
     return {
-        API,
         document,
         gallery,
         imageObservers,
         removedSources,
         requestedImages,
-        scrollObservers,
         state,
     };
 }
