@@ -32,6 +32,22 @@ def test_security_headers_present_on_normal_route(app):
     assert "permissions-policy" in resp.headers
 
 
+def test_csp_allows_blob_images_without_relaxing_other_resource_types(app):
+    client = TestClient(app)
+    csp = client.get("/plain").headers["content-security-policy"]
+
+    directives = {
+        directive.split(" ", 1)[0]: directive.split(" ", 1)[1]
+        for directive in csp.split("; ")
+        if " " in directive
+    }
+    assert directives["img-src"] == "'self' data: blob:"
+    assert directives["script-src"] == "'self'"
+    assert directives["connect-src"] == "'self'"
+    assert directives["object-src"] == "'none'"
+    assert csp.count("blob:") == 1
+
+
 def test_csp_skipped_on_docs_route(app):
     client = TestClient(app)
     resp = client.get("/api/docs")

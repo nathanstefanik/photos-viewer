@@ -96,3 +96,4 @@ assert upstream_original_requests == 1
 - Planning updated from the conversation: 1440p/full-screen derivatives and progressive upgrades are explicitly superseded by unchanged-original display.
 - Prefetch is deferred: without deployed measurements, avoiding speculative original bytes better serves the poor-connection requirement.
 - Existing isolated worktree and feature branch verified. Baseline: 88 Python tests pass.
+- Backend characterization tests were implemented before the frontend phases because they are independent: 7 new checks pass, including byte equality with a progressive JPEG carrying ICC/EXIF/comment data and cancellation cleanup. Commit `9178804`.

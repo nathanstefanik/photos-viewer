@@ -1160,6 +1160,20 @@ html[data-view="large"] .gallery-item img {
   position: absolute;
 }
 
+.lightbox-error {
+  max-width: min(28rem, calc(100vw - 8rem));
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius-md);
+  background: rgba(30, 30, 30, 0.9);
+  color: #fff;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.lightbox-error[hidden] {
+  display: none !important;
+}
+
 .download-label {
   font-size: 0.85rem;
 }

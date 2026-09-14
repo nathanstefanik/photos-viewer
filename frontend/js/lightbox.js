@@ -13,6 +13,7 @@ const Lightbox = {
         image: null,
         video: null,
         loading: null,
+        error: null,
         download: null,
         infoToggle: null,
         sidebar: null,
@@ -26,17 +27,19 @@ const Lightbox = {
     // Bumps on every displayMedia call so stale video handlers ignore themselves
     mediaGeneration: 0,
     _videoCleanup: null,
+    originalImage: null,
+    _originalDimensions: null,
 
     // Zoom/pan state for the image view. Scale is clamped to [MIN_ZOOM, maxZoom],
-    // where maxZoom (see _getMaxZoom) is computed per-asset so "100%" always means
+    // where maxZoom (see _getMaxZoom) uses the decoded original so "100%" always means
     // one native image pixel per device pixel — zoom can never go past what the
     // source actually has. x/y are screen-space pixel offsets applied after scaling
     // (translate() runs after scale() in `translate(x,y) scale(s)`, so they stay in
     // unscaled px).
     zoom: { scale: 1, x: 0, y: 0 },
     MIN_ZOOM: 1,
-    HARD_MAX_ZOOM: 8, // sanity ceiling if exif dimensions are missing/bogus
-    FALLBACK_MAX_ZOOM: 3, // used before layout/exif are known
+    HARD_MAX_ZOOM: 8, // sanity ceiling for unusually large source/display ratios
+    FALLBACK_MAX_ZOOM: 3, // used before layout/source dimensions are known
     EDGE_HANDOFF_PX: 70, // overdrag past the pan limit that hands off to prev/next
     SWIPE_THRESHOLD_PX: 50, // horizontal drag at Fit that counts as swipe-to-navigate
     _isPanning: false,
@@ -56,12 +59,14 @@ const Lightbox = {
         this.elements.image = document.getElementById('lightbox-image');
         this.elements.video = document.getElementById('lightbox-video');
         this.elements.loading = document.getElementById('lightbox-loading');
+        this.elements.error = document.getElementById('lightbox-error');
         this.elements.download = document.getElementById('lightbox-download');
         this.elements.infoToggle = document.getElementById('lightbox-info-toggle');
         this.elements.sidebar = document.getElementById('lightbox-sidebar');
         this.elements.sidebarClose = document.getElementById('sidebar-close');
         this.elements.sidebarContent = document.getElementById('sidebar-content');
         this.elements.zoomToggle = document.getElementById('lightbox-zoom-toggle');
+        this.originalImage = new OriginalImage();
 
         this.elements.overlay.addEventListener('click', () => this.close());
         this.elements.close.addEventListener('click', () => this.close());
@@ -134,21 +139,36 @@ const Lightbox = {
         document.body.style.overflow = 'hidden';
         this.showLoading();
 
-        if (!asset.exifInfo) {
-            try {
-                this.currentAsset = await API.getAsset(asset.id);
-            } catch (error) {
-                console.error('Failed to load asset details:', error);
-            }
-        }
-
-        this.displayMedia(this.currentAsset);
-        this.updateDownloadLink(this.currentAsset);
+        const generation = this.displayMedia(asset);
+        this.updateDownloadLink(asset);
         this.updateNavigation();
-        this.updateMetadata(this.currentAsset);
+        this.updateMetadata(asset);
 
         if (window.Social) {
-            Social.loadForAsset(this.currentAsset.id);
+            Social.loadForAsset(asset.id);
+        }
+
+        if (!asset.exifInfo) {
+            try {
+                const detailedAsset = await API.getAsset(asset.id);
+                if (
+                    generation !== this.mediaGeneration ||
+                    this.currentAsset?.id !== asset.id
+                ) {
+                    return;
+                }
+                this.currentAsset = detailedAsset;
+                this.updateDownloadLink(detailedAsset);
+                this.updateNavigation();
+                this.updateMetadata(detailedAsset);
+            } catch (error) {
+                if (
+                    generation === this.mediaGeneration &&
+                    this.currentAsset?.id === asset.id
+                ) {
+                    console.error('Failed to load asset details:', error);
+                }
+            }
         }
     },
 
@@ -157,6 +177,7 @@ const Lightbox = {
         this.elements.lightbox.hidden = true;
         document.body.style.overflow = '';
 
+        this.resetImage();
         this.resetVideo();
         this.resetZoom();
         this.currentAsset = null;
@@ -189,6 +210,24 @@ const Lightbox = {
         video.load();
         video.hidden = true;
         video.onerror = null;
+    },
+
+    /** Abort original work, release its blob URL, and remove displayed pixels. */
+    resetImage() {
+        const image = this.elements.image;
+        image.hidden = true;
+        image.removeAttribute('src');
+        image.onload = null;
+        image.onerror = null;
+        image.style.width = '';
+        image.style.height = '';
+
+        this.originalImage?.clear();
+        this._originalDimensions = null;
+
+        if (this.elements.error) {
+            this.elements.error.hidden = true;
+        }
     },
 
     async previous() {
@@ -224,8 +263,8 @@ const Lightbox = {
 
         // Always tear down any prior video so controls never leak onto photos
         this.resetVideo();
+        this.resetImage();
         this.resetZoom();
-        this.elements.image.hidden = true;
         if (this.elements.zoomToggle) this.elements.zoomToggle.hidden = isVideo;
 
         if (isVideo) {
@@ -233,6 +272,8 @@ const Lightbox = {
         } else {
             this._displayImage(asset, generation);
         }
+
+        return generation;
     },
 
     _displayVideo(asset, generation) {
@@ -310,36 +351,65 @@ const Lightbox = {
     _displayImage(asset, generation) {
         const img = this.elements.image;
         img.alt = asset.originalFileName || 'Photo';
-        img.hidden = false;
-        // Drop any size pin left by a previous asset's full-res swap (see
-        // _prefetchFullRes) so this asset's Fit size is computed fresh.
-        img.style.width = '';
-        img.style.height = '';
-        this._fullResRequested = false;
-        this._fullResLoaded = false;
-        this._fullResFailed = false;
-        this._fullResDecodedUrl = null;
+        this.showLoading();
 
-        const previewUrl = API.getThumbnailUrl(asset.id, 'preview');
-        img.fetchPriority = 'high';
-        img.src = previewUrl;
-        img.onload = () => {
-            if (generation !== this.mediaGeneration) return;
-            this.hideLoading();
-            // Layout/exif are only reliably known once the image has actually
-            // rendered — refresh the zoom ceiling and chip now that they are.
-            this._updateZoomChip();
-            this._swapFullResIfReady();
-        };
-        img.onerror = () => {
-            if (generation !== this.mediaGeneration) return;
-            this.hideLoading();
-            console.error('Failed to load preview');
-        };
+        this.originalImage
+            .load(API.getOriginalUrl(asset.id))
+            .then(async (decoded) => {
+                if (
+                    generation !== this.mediaGeneration ||
+                    this.currentAsset?.id !== asset.id
+                ) {
+                    return;
+                }
 
-        // Start the original immediately so Fit-to-screen is pixel-true once
-        // it lands; preview covers the wait without a tiny-thumbnail flash.
-        this._prefetchFullRes();
+                img.src = decoded.url;
+                try {
+                    await img.decode();
+                } catch (error) {
+                    if (
+                        generation === this.mediaGeneration &&
+                        this.currentAsset?.id === asset.id
+                    ) {
+                        img.hidden = true;
+                        img.removeAttribute('src');
+                        this.originalImage.clear();
+                    }
+                    throw error;
+                }
+
+                if (
+                    generation !== this.mediaGeneration ||
+                    this.currentAsset?.id !== asset.id
+                ) {
+                    return;
+                }
+
+                this._originalDimensions = {
+                    width: decoded.naturalWidth,
+                    height: decoded.naturalHeight,
+                };
+                img.hidden = false;
+                this.hideLoading();
+                this._updateZoomChip();
+            })
+            .catch((error) => {
+                if (
+                    error?.name === 'AbortError' ||
+                    generation !== this.mediaGeneration ||
+                    this.currentAsset?.id !== asset.id
+                ) {
+                    return;
+                }
+
+                this.hideLoading();
+                if (this.elements.error) {
+                    this.elements.error.textContent =
+                        'The original photo could not be displayed. You can still download it.';
+                    this.elements.error.hidden = false;
+                }
+                console.error('Failed to display original photo:', error);
+            });
     },
 
     // ----- Zoom & pan -----
@@ -347,7 +417,6 @@ const Lightbox = {
     /** Zoom to `newScale`, keeping the content under (clientX, clientY) fixed on screen. */
     _zoomAt(newScale, clientX, clientY) {
         if (this.elements.image.hidden) return;
-        if (newScale > this.MIN_ZOOM + 0.001) this._prefetchFullRes();
 
         newScale = Math.min(this._getMaxZoom(), Math.max(this.MIN_ZOOM, newScale));
 
@@ -370,20 +439,13 @@ const Lightbox = {
 
     /** Native (1:1 device-pixel) zoom ceiling for the current asset — "100%" always
      *  means one source pixel per device pixel, never a blown-up preview. Recomputed
-     *  live from current layout/exif rather than cached, so it tracks resizes for free. */
+     *  live from current layout and decoded source dimensions, so it tracks resizes. */
     _getMaxZoom() {
         const img = this.elements.image;
         const displayedWidth = img.offsetWidth;
         if (!displayedWidth) return this.FALLBACK_MAX_ZOOM;
 
-        let nativeWidth = this.currentAsset?.exifInfo?.exifImageWidth;
-
-        // If the full-res original failed to decode (HEIC/RAW the browser can't
-        // render, etc.), don't let exif metadata promise more detail than what's
-        // actually on screen — cap to the loaded preview's own resolution instead.
-        if (this._fullResFailed && img.naturalWidth) {
-            nativeWidth = nativeWidth ? Math.min(nativeWidth, img.naturalWidth) : img.naturalWidth;
-        }
+        const nativeWidth = this._originalDimensions?.width;
 
         if (!nativeWidth) return this.FALLBACK_MAX_ZOOM;
 
@@ -396,66 +458,6 @@ const Lightbox = {
      *  point offering zoom (and it'd otherwise just magnify a soft preview). */
     _zoomAvailable() {
         return this._getMaxZoom() > this.MIN_ZOOM + 0.02;
-    },
-
-    /** Fetch the full-resolution original and hot-swap it in once decoded, so Fit
-     *  and zoom show real pixels instead of a magnified preview. Starts as soon as
-     *  the lightbox opens. Safe to call repeatedly — only the first call per asset
-     *  does anything. Silently gives up (and caps zoom to the preview) if the
-     *  browser can't decode the original, e.g. HEIC/RAW sources. */
-    _prefetchFullRes() {
-        const asset = this.currentAsset;
-        if (!asset || asset.type === 'VIDEO' || this._fullResRequested) return;
-        this._fullResRequested = true;
-
-        const img = this.elements.image;
-        if (!img.decode) {
-            this._fullResFailed = true;
-            return;
-        }
-
-        const generation = this.mediaGeneration;
-        const assetId = asset.id;
-        const originalUrl = API.getOriginalUrl(assetId);
-        const original = new Image();
-        original.src = originalUrl;
-
-        original
-            .decode()
-            .then(() => {
-                if (generation !== this.mediaGeneration || this.currentAsset?.id !== assetId) return;
-                this._fullResDecodedUrl = originalUrl;
-                this._swapFullResIfReady();
-            })
-            .catch(() => {
-                if (generation !== this.mediaGeneration || this.currentAsset?.id !== assetId) return;
-                this._fullResFailed = true;
-                // maxZoom may have just shrunk to the preview's real resolution —
-                // pull the current scale back within it if the gesture already
-                // zoomed past what the preview actually has.
-                const rect = this.elements.media.getBoundingClientRect();
-                this._zoomAt(this.zoom.scale, rect.left + rect.width / 2, rect.top + rect.height / 2);
-            });
-
-        this._updateZoomChip();
-    },
-
-    /** Swap in the decoded original once the preview has a real layout box.
-     *  Swapping earlier would pin width/height at 0 and collapse the image. */
-    _swapFullResIfReady() {
-        if (this._fullResLoaded || !this._fullResDecodedUrl) return;
-        const img = this.elements.image;
-        if (!img.offsetWidth) return;
-        // Pin the box to its current (preview-derived) Fit size before swapping.
-        // Without this, a preview that already fits the viewport at native size
-        // would jump when replaced by a much larger original that gets scaled
-        // down differently by the max-width/max-height auto-sizing — the pin
-        // makes the swap provably seamless regardless of monitor size.
-        img.style.width = `${img.offsetWidth}px`;
-        img.style.height = `${img.offsetHeight}px`;
-        img.src = this._fullResDecodedUrl;
-        this._fullResLoaded = true;
-        this._updateZoomChip();
     },
 
     /** How far the image can pan before its edge would show empty space. */
@@ -537,9 +539,8 @@ const Lightbox = {
 
         const label = btn.querySelector('.zoom-chip-label');
         if (label) {
-            const loadingOriginal = this._fullResRequested && !this._fullResLoaded && !this._fullResFailed;
             const text = zoomed ? `${Math.round((this.zoom.scale / this._getMaxZoom()) * 100)}%` : 'Fit';
-            label.textContent = loadingOriginal ? `${text} …` : text;
+            label.textContent = text;
         }
     },
 
@@ -578,11 +579,6 @@ const Lightbox = {
 
     initZoomGestures() {
         const img = this.elements.image;
-
-        // Warm the full-res fetch as soon as a zoom-ish gesture starts (dblclick,
-        // pinch, drag) rather than waiting for it to land — the request is the
-        // slow part, not the decode.
-        img.addEventListener('pointerdown', () => this._prefetchFullRes(), { passive: true });
 
         img.addEventListener('dblclick', (e) => {
             e.preventDefault();
