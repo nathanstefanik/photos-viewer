@@ -229,9 +229,7 @@ class TokenStore:
 
     def list(self) -> list[TokenRecord]:
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM tokens ORDER BY created_at DESC"
-            ).fetchall()
+            rows = conn.execute("SELECT * FROM tokens ORDER BY created_at DESC").fetchall()
         return [self._row_to_record(r) for r in rows]
 
     @staticmethod

@@ -43,8 +43,6 @@ def install_security_headers(app: FastAPI) -> None:
             "camera=(), microphone=(), geolocation=(), interest-cohort=()"
         )
         if settings.public_base_url.startswith("https://"):
-            response.headers["Strict-Transport-Security"] = (
-                "max-age=31536000; includeSubDomains"
-            )
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
         return response

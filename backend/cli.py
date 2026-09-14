@@ -152,8 +152,7 @@ def main() -> int:
             print("(no tokens)")
             return 0
         print(
-            f"{'id':<12} {'label':<14} {'created':<18} {'expires':<18} "
-            f"{'last_used':<18} {'scope':<8} status"
+            f"{'id':<12} {'label':<14} {'created':<18} {'expires':<18} {'last_used':<18} {'scope':<8} status"
         )
         for r in rows:
             if r.revoked:

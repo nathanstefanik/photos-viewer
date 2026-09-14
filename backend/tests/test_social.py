@@ -26,12 +26,12 @@ def test_new_guest_id_is_uuid():
     uuid.UUID(new_guest_id())  # raises ValueError if malformed
 
 
-@pytest.mark.parametrize("emoji", ["\U0001F600", "\U0001F44D", "\U0001F1FA\U0001F1F8", "❤️"])
+@pytest.mark.parametrize("emoji", ["\U0001f600", "\U0001f44d", "\U0001f1fa\U0001f1f8", "❤️"])
 def test_is_single_emoji_accepts(emoji):
     assert is_single_emoji(emoji)
 
 
-@pytest.mark.parametrize("value", ["a", "ab", "", "hello", "<script>", "\U0001F600\U0001F600"])
+@pytest.mark.parametrize("value", ["a", "ab", "", "hello", "<script>", "\U0001f600\U0001f600"])
 def test_is_single_emoji_rejects(value):
     assert not is_single_emoji(value)
 
@@ -56,12 +56,12 @@ def test_normalize_display_name_rejects_overlong_input():
 
 
 def test_reaction_toggle_add_and_remove(store):
-    reactions = store.toggle_reaction("asset-1", "guest-1", "\U0001F600", "Alice")
+    reactions = store.toggle_reaction("asset-1", "guest-1", "\U0001f600", "Alice")
     assert len(reactions) == 1
     assert reactions[0].count == 1
     assert reactions[0].reacted is True
 
-    reactions = store.toggle_reaction("asset-1", "guest-1", "\U0001F600", "Alice")
+    reactions = store.toggle_reaction("asset-1", "guest-1", "\U0001f600", "Alice")
     assert reactions == []
 
 
@@ -71,8 +71,8 @@ def test_reaction_toggle_rejects_non_emoji(store):
 
 
 def test_reaction_groups_by_emoji_across_guests(store):
-    store.toggle_reaction("asset-1", "guest-1", "\U0001F600", "Alice")
-    store.toggle_reaction("asset-1", "guest-2", "\U0001F600", "Bob")
+    store.toggle_reaction("asset-1", "guest-1", "\U0001f600", "Alice")
+    store.toggle_reaction("asset-1", "guest-2", "\U0001f600", "Bob")
     reactions = store.list_reactions("asset-1", "guest-1")
     assert len(reactions) == 1
     assert reactions[0].count == 2

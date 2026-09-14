@@ -77,9 +77,7 @@ async def get_asset_thumbnail(
     key = asset_thumb_key(asset_id, size)
 
     async def filler():
-        return await cache.fill_http(
-            key, client, f"/api/assets/{asset_id}/thumbnail", {"size": size}
-        )
+        return await cache.fill_http(key, client, f"/api/assets/{asset_id}/thumbnail", {"size": size})
 
     try:
         cached = await cache.get_or_fill(key, filler)
